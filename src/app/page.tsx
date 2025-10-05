@@ -220,9 +220,9 @@ interface RedisDocumentData {
   version: string;
 }
 
-// API base URLs - moved outside component
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL || 'http://localhost:8001';
+// API base URLs - using Next.js API routes
+const API_BASE = '/api';
+const WORKER_BASE = '/api/worker';
 
 export default function FreightChatPro() {
   const [mounted, setMounted] = useState(false);
@@ -419,6 +419,7 @@ export default function FreightChatPro() {
       });
       if (response.ok) {
         const data = await response.json();
+        console.log('Fetched documents:', data.documents);
         setDocuments(data.documents || []);
       }
     } catch (error) {
@@ -567,7 +568,8 @@ export default function FreightChatPro() {
 
       if (response.ok) {
         setSnackbar({ open: true, message: 'Document uploaded successfully', severity: 'success' });
-        fetchUserDocuments(token);
+        // Refresh documents immediately
+        await fetchUserDocuments(token);
         if (user) {
           setTimeout(() => fetchRedisData(user.userId), 2000);
         }
@@ -1150,21 +1152,39 @@ export default function FreightChatPro() {
         )}
       </Paper>
 
-      {documents.length > 0 && (
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>Chat with Documents</Typography>
-          <TextField fullWidth variant="outlined" placeholder="Ask a question about your documents..." value={documentChatInput} onChange={(e) => setDocumentChatInput(e.target.value)} onKeyPress={(e) => { if (e.key === 'Enter') handleDocumentChat(); }} disabled={documentChatLoading} sx={{ mb: 2 }} />
-          <Button variant="contained" onClick={handleDocumentChat} disabled={documentChatLoading || !documentChatInput.trim()} fullWidth>
-            {documentChatLoading ? 'Thinking...' : 'Ask Question'}
-          </Button>
+      <Paper sx={{ p: 2 }}>
+        <Typography variant="h6" gutterBottom>Chat with Documents</Typography>
+        <TextField 
+          fullWidth 
+          variant="outlined" 
+          placeholder={documents.length > 0 ? "Ask a question about your documents..." : "Upload a PDF first, then ask questions about it..."} 
+          value={documentChatInput} 
+          onChange={(e) => setDocumentChatInput(e.target.value)} 
+          onKeyPress={(e) => { if (e.key === 'Enter') handleDocumentChat(); }} 
+          disabled={documentChatLoading} 
+          sx={{ mb: 2 }} 
+        />
+        <Button 
+          variant="contained" 
+          onClick={handleDocumentChat} 
+          disabled={documentChatLoading || !documentChatInput.trim() || documents.length === 0} 
+          fullWidth
+        >
+          {documentChatLoading ? 'Thinking...' : documents.length === 0 ? 'Upload a PDF first' : 'Ask Question'}
+        </Button>
 
-          {documentChatResponse && (
-            <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.50' }}>
-              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{documentChatResponse}</Typography>
-            </Paper>
-          )}
-        </Paper>
-      )}
+        {documents.length === 0 && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Upload a PDF document first to enable document chat functionality.
+          </Alert>
+        )}
+
+        {documentChatResponse && (
+          <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.50' }}>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{documentChatResponse}</Typography>
+          </Paper>
+        )}
+      </Paper>
     </Box>
   );
 
