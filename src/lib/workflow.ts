@@ -1,425 +1,507 @@
-import { StateGraph, END, START } from "@langchain/langgraph";
-import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages";
-import { OPENAI_API_KEY } from './config';
+// src/lib/workflow.ts - Rule-based state machine (NO LLM)
 
-const model = new ChatOpenAI({
-  modelName: "gpt-4o",
-  temperature: 0.7,
-  apiKey: OPENAI_API_KEY,
-});
+export interface ConversationState {
+  threadId: string;
+  userId: string;
+  currentStep: WorkflowStep;
+  shipmentData: {
+    origin?: string;
+    destination?: string;
+    cargo?: string;
+    weight?: string;
+    serviceLevel?: 'Express' | 'Standard' | 'Economy';
+  };
+  invoiceIds: string[];
+  messages: Array<{
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: string;
+  }>;
+  attempts: number; // Track failed attempts at current step
+  lastActivity: string;
+}
 
-const ShippingStateSchema = {
-  messages: [],
-  userId: null,
-  threadId: null,
-  shipmentData: {},
-  currentPhase: 'greeting',
-  completed: false,
-  quote: null,
-  output: null,
-  nextAction: null
-};
+export type WorkflowStep =
+  | 'greeting'
+  | 'collect_origin'
+  | 'collect_destination'
+  | 'collect_cargo'
+  | 'collect_weight'
+  | 'collect_service_level'
+  | 'ready_for_quote'
+  | 'quote_generated'
+  | 'completed';
 
-// Single agent that handles everything
-async function shippingAgentNode(state: any) {
-  // If no messages, start with greeting
-  if (state.messages.length === 0) {
-    const greetingMessage = {
-      role: 'assistant',
-      content: "Hello! I'm your AI shipping agent. I'll help you get the best freight quotes and manage your shipment.\n\nTo start, could you tell me:\n1. Where are you shipping from?\n2. Where are you shipping to?\n\n(Example: From Mumbai, India to New York, USA)\n\nYou can also upload invoices or shipping documents at any time during our conversation.",
-      timestamp: new Date().toISOString()
-    };
-    
-    return {
-      ...state,
-      messages: [greetingMessage],
-      output: greetingMessage.content,
-      currentPhase: 'route_collection',
-      completed: false
-    };
-  }
+// Pattern matching for data extraction
+export class DataExtractor {
+  // Extract Indian cities from text
+  static extractIndianCity(text: string): string | null {
+    const indianCities = [
+      'Mumbai', 'Delhi', 'Bangalore', 'Bengaluru', 'Hyderabad', 'Chennai',
+      'Kolkata', 'Pune', 'Ahmedabad', 'Jaipur', 'Surat', 'Lucknow',
+      'Kanpur', 'Nagpur', 'Indore', 'Thane', 'Bhopal', 'Visakhapatnam',
+      'Pimpri', 'Patna', 'Vadodara', 'Ghaziabad', 'Ludhiana', 'Agra',
+      'Nashik', 'Faridabad', 'Meerut', 'Rajkot', 'Kalyan', 'Vasai',
+      'Varanasi', 'Srinagar', 'Aurangabad', 'Dhanbad', 'Amritsar',
+      'Navi Mumbai', 'Allahabad', 'Ranchi', 'Howrah', 'Coimbatore',
+      'Jabalpur', 'Gwalior', 'Vijayawada', 'Jodhpur', 'Madurai',
+      'Raipur', 'Kota', 'Chandigarh', 'Guwahati', 'Solapur'
+    ];
 
-  // Get last message
-  const lastMessage = state.messages[state.messages.length - 1];
-  
-  // If last message was from assistant, we're waiting for user input
-  if (lastMessage.role === 'assistant') {
-    return {
-      ...state,
-      output: lastMessage.content,
-      completed: false
-    };
-  }
-
-  // Check for system messages about invoice uploads
-  const systemMessages = state.messages.filter((m: any) => m.role === 'system');
-  const hasNewInvoice = systemMessages.length > 0 && 
-    systemMessages[systemMessages.length - 1].content.includes('Invoice uploaded');
-
-  // User has sent a message - process it
-  const userMessage = lastMessage.content;
-  
-  // Build conversation context (last 10 messages for better context)
-  const conversationHistory = state.messages.slice(-10).map((m: any) => {
-    if (m.role === 'user') return new HumanMessage(m.content);
-    if (m.role === 'assistant') return new AIMessage(m.content);
-    if (m.role === 'system') return new SystemMessage(m.content);
-    return new HumanMessage(m.content);
-  });
-
-  // Build context about uploaded invoices
-  const invoiceContext = state.shipmentData.invoices && state.shipmentData.invoices.length > 0
-    ? `\n\nUPLOADED INVOICES:\n${state.shipmentData.invoices.map((inv: any) => 
-        `- ${inv.filename} (${inv.processed ? 'Processed' : 'Processing...'})`
-      ).join('\n')}`
-    : '';
-
-  // System prompt for the agent
-  const systemPrompt = `You are a professional freight shipping assistant helping users book shipments.
-
-Current Phase: ${state.currentPhase}
-Collected Data: ${JSON.stringify(state.shipmentData, null, 2)}${invoiceContext}
-
-CRITICAL INSTRUCTIONS:
-1. Extract shipping information from user messages and update the shipmentData
-2. Guide users through collecting these details (one at a time):
-   - Origin location (city, country)
-   - Destination location (city, country)
-   - Cargo description
-   - Weight (in kg)
-   - Service level preference (Express/Standard/Economy)
-   - Special requirements (optional)
-   - Declared value (optional)
-   - Contact information (optional)
-
-3. When user uploads an invoice, acknowledge it warmly and explain you'll use it to auto-fill details
-
-4. GENERATE QUOTE when you have AT MINIMUM:
-   - Origin
-   - Destination
-   - Cargo description
-   - Weight (approximate is fine)
-
-5. Response format:
-   - For normal conversation: Just respond naturally
-   - When ready for quote: Start your response with "READY_FOR_QUOTE" on first line, then provide natural response
-
-Be conversational, friendly, and professional. Ask for ONE thing at a time. Don't overwhelm the user.`;
-
-  try {
-    const response = await model.invoke([
-      new SystemMessage(systemPrompt),
-      ...conversationHistory
-    ]);
-
-    // Handle response content safely
-    const responseText = typeof response.content === 'string' 
-      ? response.content 
-      : JSON.stringify(response.content);
-
-    const shouldGenerateQuote = responseText.trim().startsWith('READY_FOR_QUOTE');
-    
-    // Remove the READY_FOR_QUOTE marker from display
-    const assistantResponse = shouldGenerateQuote 
-      ? responseText.replace(/^READY_FOR_QUOTE\s*/i, '').trim()
-      : responseText;
-
-    // Extract data from conversation using structured extraction
-    let extractedData = { ...state.shipmentData };
-    
-    // Use AI to extract structured data
-    const extractionPrompt = `Extract shipping information from this user message and conversation context.
-
-User message: "${userMessage}"
-
-Current data: ${JSON.stringify(state.shipmentData, null, 2)}
-
-Return ONLY valid JSON with any found/updated fields (use null for missing fields):
-{
-  "origin": "city, country or null",
-  "destination": "city, country or null", 
-  "cargo": "description or null",
-  "weight": "number with unit (e.g., '50kg') or null",
-  "serviceLevel": "Express|Standard|Economy or null",
-  "specialRequirements": "description or null",
-  "declaredValue": "amount or null",
-  "contactName": "name or null",
-  "contactEmail": "email or null",
-  "contactPhone": "phone or null"
-}`;
-
-    try {
-      const extractResponse = await model.invoke([
-        new SystemMessage(extractionPrompt),
-        new HumanMessage(userMessage)
-      ]);
-
-      const extractedText = typeof extractResponse.content === 'string'
-        ? extractResponse.content
-        : JSON.stringify(extractResponse.content);
-
-      // Try to parse JSON from response
-      const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        // Only update fields that have non-null values
-        Object.keys(parsed).forEach(key => {
-          if (parsed[key] !== null && parsed[key] !== '') {
-            extractedData[key] = parsed[key];
-          }
-        });
+    const lowerText = text.toLowerCase();
+    for (const city of indianCities) {
+      if (lowerText.includes(city.toLowerCase())) {
+        return city;
       }
-    } catch (e) {
-      console.log('Data extraction failed, keeping existing data:', e);
+    }
+    return null;
+  }
+
+  // Extract international cities/countries
+  static extractLocation(text: string): string | null {
+    const locations = [
+      // Countries
+      'USA', 'United States', 'America', 'UK', 'United Kingdom', 'China',
+      'Japan', 'Germany', 'France', 'Canada', 'Australia', 'Singapore',
+      'UAE', 'Dubai', 'Saudi Arabia', 'Malaysia', 'Thailand', 'Vietnam',
+      // Major cities
+      'New York', 'Los Angeles', 'London', 'Paris', 'Tokyo', 'Beijing',
+      'Shanghai', 'Hong Kong', 'Singapore', 'Dubai', 'Sydney', 'Toronto'
+    ];
+
+    // First try Indian cities
+    const indianCity = this.extractIndianCity(text);
+    if (indianCity) return indianCity;
+
+    // Then try international
+    const lowerText = text.toLowerCase();
+    for (const location of locations) {
+      if (lowerText.includes(location.toLowerCase())) {
+        return location;
+      }
     }
 
-    // Generate quote if ready
-    if (shouldGenerateQuote && extractedData.origin && extractedData.destination && extractedData.cargo) {
-      const quote = await generateShippingQuote(extractedData);
-      
-      const quoteMessage = `${assistantResponse}
+    // Try pattern: "from X" or "to Y"
+    const fromMatch = text.match(/from\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
+    if (fromMatch) return fromMatch[1];
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SHIPPING QUOTES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const toMatch = text.match(/to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
+    if (toMatch) return toMatch[1];
 
-**Top 3 Recommended Carriers:**
+    return null;
+  }
 
-1. **${quote.quotes[0].name}**
-   Rate: $${quote.quotes[0].rate}
-   Transit: ${quote.quotes[0].transitTime}
-   Reliability: ${quote.quotes[0].reliability}
+  // Extract weight from text
+  static extractWeight(text: string): string | null {
+    // Pattern: number + kg/kgs/kilos/kilograms
+    const kgPattern = /(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)/i;
+    const kgMatch = text.match(kgPattern);
+    if (kgMatch) {
+      return `${kgMatch[1]} kg`;
+    }
 
-2. **${quote.quotes[1].name}**
-   Rate: $${quote.quotes[1].rate}
-   Transit: ${quote.quotes[1].transitTime}
-   Reliability: ${quote.quotes[1].reliability}
+    // Pattern: number + lbs/pounds
+    const lbsPattern = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)/i;
+    const lbsMatch = text.match(lbsPattern);
+    if (lbsMatch) {
+      const kg = Math.round(parseFloat(lbsMatch[1]) * 0.453592);
+      return `${kg} kg`;
+    }
 
-3. **${quote.quotes[2].name}**
-   Rate: $${quote.quotes[2].rate}
-   Transit: ${quote.quotes[2].transitTime}
-   Reliability: ${quote.quotes[2].reliability}
+    // Pattern: number + tons
+    const tonsPattern = /(\d+(?:\.\d+)?)\s*(?:tons?|tonnes?)/i;
+    const tonsMatch = text.match(tonsPattern);
+    if (tonsMatch) {
+      const kg = Math.round(parseFloat(tonsMatch[1]) * 1000);
+      return `${kg} kg`;
+    }
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Shipment Summary:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Route: ${extractedData.origin || 'Origin'} → ${extractedData.destination || 'Destination'}
-Weight: ${extractedData.weight || 'Not specified'}
-Service: ${extractedData.serviceLevel || 'Standard'}
-${extractedData.specialRequirements ? `Special: ${extractedData.specialRequirements}` : ''}
-${state.shipmentData.invoices?.length > 0 ? `Invoices: ${state.shipmentData.invoices.length} uploaded` : ''}
+    // Just a number (assume kg if between 1-10000)
+    const numberPattern = /(\d+(?:\.\d+)?)/;
+    const numberMatch = text.match(numberPattern);
+    if (numberMatch) {
+      const num = parseFloat(numberMatch[1]);
+      if (num >= 1 && num <= 10000) {
+        return `${num} kg`;
+      }
+    }
 
-Would you like to book one of these carriers?`;
+    return null;
+  }
 
-      state.messages.push({
-        role: 'assistant',
-        content: quoteMessage,
-        timestamp: new Date().toISOString()
-      });
+  // Extract cargo description
+  static extractCargo(text: string): string | null {
+    // Common cargo keywords
+    const cargoKeywords = [
+      'electronics', 'textile', 'machinery', 'furniture', 'documents',
+      'samples', 'garments', 'spare parts', 'raw materials', 'finished goods',
+      'equipment', 'tools', 'boxes', 'packages', 'parcels', 'goods',
+      'shipment', 'cargo', 'product', 'items', 'materials'
+    ];
 
+    const lowerText = text.toLowerCase();
+    for (const keyword of cargoKeywords) {
+      if (lowerText.includes(keyword)) {
+        // Try to extract a phrase around the keyword
+        const contextPattern = new RegExp(`([\\w\\s]{0,30}${keyword}[\\w\\s]{0,30})`, 'i');
+        const match = text.match(contextPattern);
+        if (match) {
+          return match[1].trim().substring(0, 100);
+        }
+        return keyword;
+      }
+    }
+
+    // If no keyword found, use the whole message (truncated)
+    if (text.length > 10 && text.length < 200) {
+      // Skip common phrases
+      const skipPhrases = ['yes', 'no', 'ok', 'sure', 'thanks', 'hello'];
+      if (!skipPhrases.some(phrase => lowerText === phrase)) {
+        return text.trim().substring(0, 100);
+      }
+    }
+
+    return null;
+  }
+
+  // Extract service level
+  static extractServiceLevel(text: string): 'Express' | 'Standard' | 'Economy' | null {
+    const lowerText = text.toLowerCase();
+    
+    if (lowerText.includes('express') || lowerText.includes('fast') || 
+        lowerText.includes('urgent') || lowerText.includes('quick')) {
+      return 'Express';
+    }
+    
+    if (lowerText.includes('economy') || lowerText.includes('cheap') || 
+        lowerText.includes('budget') || lowerText.includes('slow')) {
+      return 'Economy';
+    }
+    
+    if (lowerText.includes('standard') || lowerText.includes('normal') || 
+        lowerText.includes('regular')) {
+      return 'Standard';
+    }
+    
+    return null;
+  }
+
+  // Smart extraction - tries to find multiple fields
+  static smartExtract(text: string, currentData: ConversationState['shipmentData']): Partial<ConversationState['shipmentData']> {
+    const extracted: Partial<ConversationState['shipmentData']> = {};
+
+    // Try to extract origin if not set
+    if (!currentData.origin) {
+      const location = this.extractLocation(text);
+      if (location) extracted.origin = location;
+    }
+
+    // Try to extract destination if not set but origin is set
+    if (currentData.origin && !currentData.destination) {
+      const location = this.extractLocation(text);
+      if (location && location !== currentData.origin) {
+        extracted.destination = location;
+      }
+    }
+
+    // Extract weight
+    if (!currentData.weight) {
+      const weight = this.extractWeight(text);
+      if (weight) extracted.weight = weight;
+    }
+
+    // Extract cargo
+    if (!currentData.cargo) {
+      const cargo = this.extractCargo(text);
+      if (cargo) extracted.cargo = cargo;
+    }
+
+    // Extract service level
+    if (!currentData.serviceLevel) {
+      const service = this.extractServiceLevel(text);
+      if (service) extracted.serviceLevel = service;
+    }
+
+    return extracted;
+  }
+}
+
+// Response templates
+export class ResponseGenerator {
+  static greeting(): string {
+    return `Hello! I'm your shipping assistant. I'll help you get freight quotes for your shipment.
+
+To get started, please tell me:
+📍 Where are you shipping FROM?
+📍 Where are you shipping TO?
+
+Example: "From Mumbai to New York" or "Mumbai to Dubai"
+
+You can also upload commercial invoices anytime!`;
+  }
+
+  static askOrigin(attempts: number): string {
+    if (attempts === 0) {
+      return `Great! Where is your shipment starting from? (City or Country)
+
+Example: Mumbai, India or just "Mumbai"`;
+    } else {
+      return `I couldn't find a valid origin location. Please provide the city/country you're shipping FROM.
+
+Examples:
+• Mumbai
+• Delhi, India  
+• New York, USA`;
+    }
+  }
+
+  static askDestination(origin: string, attempts: number): string {
+    if (attempts === 0) {
+      return `Perfect! Shipping from ${origin}. 
+
+Now, where is the destination? (City or Country)`;
+    } else {
+      return `I need the destination location. Where should we deliver your shipment?
+
+Current origin: ${origin}
+
+Examples:
+• New York
+• Dubai, UAE
+• London, UK`;
+    }
+  }
+
+  static askCargo(attempts: number): string {
+    if (attempts === 0) {
+      return `What are you shipping? Please describe your cargo.
+
+Examples:
+• Electronics and components
+• Textile samples
+• Machinery parts
+• Documents`;
+    } else {
+      return `Please describe what you're shipping. This helps us provide accurate quotes.
+
+Examples: "Electronics", "Garments", "Machinery parts"`;
+    }
+  }
+
+  static askWeight(attempts: number): string {
+    if (attempts === 0) {
+      return `What's the approximate weight of your shipment?
+
+You can say:
+• "50 kg"
+• "100 kilos"
+• "2 tons"`;
+    } else {
+      return `I need the weight to calculate shipping costs. Please provide:
+
+• Weight in kg (e.g., "50 kg")
+• Weight in lbs (e.g., "110 lbs")  
+• Or approximate weight (e.g., "around 100 kg")`;
+    }
+  }
+
+  static askServiceLevel(): string {
+    return `What service level do you prefer?
+
+🚀 Express - Fastest delivery (1-3 days)
+📦 Standard - Balanced speed & cost (4-7 days)
+💰 Economy - Most affordable (8-14 days)
+
+Type: Express, Standard, or Economy
+(or just say "standard" for default)`;
+  }
+
+  static confirmDetails(data: ConversationState['shipmentData']): string {
+    return `Let me confirm your shipment details:
+
+📍 From: ${data.origin || 'Not specified'}
+📍 To: ${data.destination || 'Not specified'}
+📦 Cargo: ${data.cargo || 'Not specified'}
+⚖️ Weight: ${data.weight || 'Not specified'}
+🚚 Service: ${data.serviceLevel || 'Standard'}
+
+Should I generate quotes for this shipment? (Type "yes" to proceed)`;
+  }
+
+  static invalidInput(): string {
+    return `I didn't quite understand that. Could you please rephrase?`;
+  }
+
+  static invoiceUploaded(validation: any): string {
+    let response = `📄 Invoice Validation Complete!\n\n`;
+    response += `✅ Completeness: ${validation.completeness}%\n\n`;
+
+    if (validation.isValid) {
+      response += `Status: Valid - All required fields present\n\n`;
+      response += `I've extracted shipment details from your invoice. I'll use this to generate quotes.`;
+    } else {
+      response += `⚠️ Status: Some required fields are missing\n\n`;
+      if (validation.errors && validation.errors.length > 0) {
+        response += `Issues found:\n`;
+        validation.errors.forEach((err: string) => {
+          response += `• ${err}\n`;
+        });
+      }
+      response += `\nLet's continue with manual entry.`;
+    }
+
+    return response;
+  }
+}
+
+// State machine logic
+export class WorkflowStateMachine {
+  static determineNextStep(state: ConversationState): WorkflowStep {
+    const { shipmentData } = state;
+
+    // Check what data we have
+    const hasOrigin = !!shipmentData.origin;
+    const hasDestination = !!shipmentData.destination;
+    const hasCargo = !!shipmentData.cargo;
+    const hasWeight = !!shipmentData.weight;
+    const hasService = !!shipmentData.serviceLevel;
+
+    // Ready for quote if we have minimum data
+    if (hasOrigin && hasDestination && hasCargo && hasWeight) {
+      return 'ready_for_quote';
+    }
+
+    // Ask for missing fields in order
+    if (!hasOrigin) return 'collect_origin';
+    if (!hasDestination) return 'collect_destination';
+    if (!hasCargo) return 'collect_cargo';
+    if (!hasWeight) return 'collect_weight';
+    if (!hasService) return 'collect_service_level';
+
+    return 'ready_for_quote';
+  }
+
+  static processUserMessage(
+    state: ConversationState,
+    userMessage: string
+  ): {
+    nextState: ConversationState;
+    response: string;
+  } {
+    const lowerMessage = userMessage.toLowerCase().trim();
+
+    // Check for invoice upload system message
+    if (userMessage.includes('Invoice uploaded:')) {
+      // This will be handled separately in the route
       return {
-        ...state,
-        shipmentData: extractedData,
-        quote,
-        output: quoteMessage,
-        currentPhase: 'quote_generated',
-        completed: true
+        nextState: state,
+        response: ''
       };
     }
 
-    // Continue conversation
-    state.messages.push({
-      role: 'assistant',
-      content: assistantResponse,
-      timestamp: new Date().toISOString()
+    // Smart extraction - try to get data from message
+    const extracted = DataExtractor.smartExtract(userMessage, state.shipmentData);
+    const updatedData = { ...state.shipmentData, ...extracted };
+
+    let response = '';
+    let attempts = state.attempts;
+
+    // Process based on current step
+    switch (state.currentStep) {
+      case 'greeting':
+        // Try to extract origin/destination from first message
+        if (extracted.origin || extracted.destination) {
+          response = extracted.origin 
+            ? ResponseGenerator.askDestination(extracted.origin, 0)
+            : ResponseGenerator.askOrigin(0);
+        } else {
+          response = ResponseGenerator.askOrigin(0);
+        }
+        attempts = 0;
+        break;
+
+      case 'collect_origin':
+        if (extracted.origin) {
+          response = ResponseGenerator.askDestination(extracted.origin, 0);
+          attempts = 0;
+        } else {
+          attempts++;
+          response = ResponseGenerator.askOrigin(attempts);
+        }
+        break;
+
+      case 'collect_destination':
+        if (extracted.destination) {
+          response = ResponseGenerator.askCargo(0);
+          attempts = 0;
+        } else {
+          attempts++;
+          response = ResponseGenerator.askDestination(updatedData.origin!, attempts);
+        }
+        break;
+
+      case 'collect_cargo':
+        if (extracted.cargo) {
+          response = ResponseGenerator.askWeight(0);
+          attempts = 0;
+        } else {
+          attempts++;
+          response = ResponseGenerator.askCargo(attempts);
+        }
+        break;
+
+      case 'collect_weight':
+        if (extracted.weight) {
+          response = ResponseGenerator.askServiceLevel();
+          attempts = 0;
+        } else {
+          attempts++;
+          response = ResponseGenerator.askWeight(attempts);
+        }
+        break;
+
+      case 'collect_service_level':
+        if (extracted.serviceLevel) {
+          response = ResponseGenerator.confirmDetails(updatedData);
+          attempts = 0;
+        } else {
+          // Default to Standard
+          updatedData.serviceLevel = 'Standard';
+          response = ResponseGenerator.confirmDetails(updatedData);
+          attempts = 0;
+        }
+        break;
+
+      case 'ready_for_quote':
+        // Check for confirmation
+        if (lowerMessage.includes('yes') || lowerMessage.includes('confirm') || 
+            lowerMessage.includes('proceed') || lowerMessage.includes('generate')) {
+          response = 'GENERATE_QUOTE'; // Signal to generate quote
+        } else if (lowerMessage.includes('no') || lowerMessage.includes('change')) {
+          response = 'What would you like to change? (origin, destination, cargo, weight, service)';
+        } else {
+          response = ResponseGenerator.confirmDetails(updatedData);
+        }
+        break;
+
+      default:
+        response = ResponseGenerator.invalidInput();
+    }
+
+    // Determine next step
+    const nextStep = this.determineNextStep({
+      ...state,
+      shipmentData: updatedData
     });
 
-    return {
+    const nextState: ConversationState = {
       ...state,
-      shipmentData: extractedData,
-      output: assistantResponse,
-      currentPhase: determinePhase(extractedData),
-      completed: false
+      currentStep: nextStep,
+      shipmentData: updatedData,
+      attempts,
+      lastActivity: new Date().toISOString()
     };
 
-  } catch (error) {
-    console.error('Agent error:', error);
-    const errorMessage = "I apologize, I encountered an error processing your request. Could you please try rephrasing that?";
-    
-    state.messages.push({
-      role: 'assistant',
-      content: errorMessage,
-      timestamp: new Date().toISOString()
-    });
-
-    return {
-      ...state,
-      output: errorMessage,
-      completed: false
-    };
+    return { nextState, response };
   }
-}
-
-function determinePhase(data: any) {
-  if (data.quote) return 'quote_generated';
-  if (data.origin && data.destination && data.cargo && data.weight) return 'ready_for_quote';
-  if (data.cargo && data.weight) return 'service_selection';
-  if (data.origin && data.destination) return 'cargo_collection';
-  if (data.origin || data.destination) return 'route_collection';
-  return 'route_collection';
-}
-
-export async function createShippingAgent(checkpointer: any) {
-  const workflow = new StateGraph({
-    channels: ShippingStateSchema
-  });
-
-  workflow.addNode('agent', shippingAgentNode);
-  workflow.addEdge(START, 'agent');
-  workflow.addEdge('agent', END);
-
-  return workflow.compile({ 
-    checkpointer,
-    interruptBefore: [],
-    interruptAfter: []
-  });
-}
-
-export class ShippingAgentExecutor {
-  constructor(public agent: any, public checkpointer: any) {}
-
-  async invoke(state: any, config: any) {
-    try {
-      const result = await this.agent.invoke(state, config);
-      return result;
-    } catch (error) {
-      console.error('Agent execution error:', error);
-      throw error;
-    }
-  }
-}
-
-async function generateShippingQuote(shipmentData: any) {
-  const { cargo, weight, serviceLevel, specialRequirements, declaredValue, origin, destination } = shipmentData;
-  
-  // Extract weight value
-  const weightMatch = (weight || cargo || '').match(/(\d+)\s*kg/i);
-  const weightValue = weightMatch ? parseInt(weightMatch[1]) : 50;
-  
-  // Extract declared value
-  const valueMatch = (declaredValue || '').match(/[\d,]+/);
-  const value = valueMatch ? parseInt(valueMatch[0].replace(/,/g, '')) : 1000;
-  
-  const routeType = determineRouteType(origin, destination);
-  const baseRate = calculateBaseRate(routeType, weightValue, value);
-  const service = getServiceMultiplier(serviceLevel);
-  const additionalCost = calculateAdditionalCosts(specialRequirements, value);
-  
-  const carriers = [
-    { carrierId: 'dhl_express_001', name: 'DHL Express Worldwide', reputation: 9.4, reliability: 98.7 },
-    { carrierId: 'fedex_intl_002', name: 'FedEx International Premium', reputation: 9.2, reliability: 98.2 },
-    { carrierId: 'ups_worldwide_003', name: 'UPS Worldwide Express', reputation: 9.0, reliability: 97.8 },
-    { carrierId: 'maersk_004', name: 'Maersk Line Freight', reputation: 8.9, reliability: 97.5 },
-    { carrierId: 'db_schenker_005', name: 'DB Schenker Global', reputation: 8.8, reliability: 97.2 }
-  ];
-  
-  const quotes = carriers.slice(0, 3).map((carrier, index) => {
-    const variation = 0.88 + (index * 0.08);
-    const finalRate = (baseRate * service.multiplier * variation + additionalCost);
-    const baseDays = service.days.split('-').map(d => parseInt(d));
-    const minDays = baseDays[0] + index;
-    const maxDays = baseDays[1] + index;
-    
-    return {
-      carrierId: carrier.carrierId,
-      name: carrier.name,
-      service: serviceLevel || 'Standard',
-      rate: finalRate.toFixed(2),
-      transitTime: `${minDays}-${maxDays} business days`,
-      reputation: carrier.reputation,
-      reliability: carrier.reliability + '%',
-      estimatedDelivery: new Date(Date.now() + (minDays + 1) * 24 * 60 * 60 * 1000).toISOString(),
-      currency: 'USD'
-    };
-  });
-  
-  quotes.sort((a, b) => parseFloat(a.rate) - parseFloat(b.rate));
-  
-  return {
-    quotes,
-    recommendedQuote: quotes[0],
-    totalEstimate: quotes[0].rate,
-    currency: 'USD',
-    validUntil: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    shipmentDetails: {
-      weight: weightValue + 'kg',
-      declaredValue: '$' + value.toLocaleString(),
-      route: `${origin || 'Origin'} → ${destination || 'Destination'}`,
-      serviceLevel: serviceLevel || 'Standard',
-      cargo: cargo || 'General cargo'
-    }
-  };
-}
-
-function determineRouteType(origin: string, destination: string) {
-  if (!origin || !destination) return 'domestic';
-  
-  const originLower = origin.toLowerCase();
-  const destLower = destination.toLowerCase();
-  
-  const countries = ['usa', 'us', 'united states', 'uk', 'united kingdom', 'india', 'china', 
-                     'japan', 'germany', 'france', 'canada', 'australia', 'brazil', 'mexico'];
-  
-  const originCountry = countries.find(c => originLower.includes(c));
-  const destCountry = countries.find(c => destLower.includes(c));
-  
-  if (originCountry && destCountry && originCountry !== destCountry) {
-    return 'international';
-  }
-  
-  if (originLower.includes('asia') || destLower.includes('asia') ||
-      originLower.includes('europe') || destLower.includes('europe')) {
-    return 'international';
-  }
-  
-  return 'domestic';
-}
-
-function calculateBaseRate(routeType: string, weight: number, value: number) {
-  const routes = { 
-    domestic: 120, 
-    regional: 280, 
-    international: 480 
-  };
-  const baseRate = routes[routeType as keyof typeof routes] || routes.domestic;
-  const weightRate = Math.ceil(weight / 10) * 18;
-  const valueRate = Math.ceil(value / 1000) * 5;
-  return baseRate + weightRate + valueRate;
-}
-
-function getServiceMultiplier(serviceLevel: string) {
-  const multipliers = {
-    Express: { multiplier: 2.5, days: '1-3' },
-    Standard: { multiplier: 1.0, days: '4-7' },
-    Economy: { multiplier: 0.75, days: '8-14' }
-  };
-  return multipliers[serviceLevel as keyof typeof multipliers] || multipliers.Standard;
-}
-
-function calculateAdditionalCosts(requirements: string, value: number) {
-  if (!requirements) return 0;
-  let cost = 0;
-  const reqString = Array.isArray(requirements) 
-    ? requirements.join(' ').toLowerCase() 
-    : String(requirements).toLowerCase();
-  
-  if (reqString.includes('insurance')) cost += Math.max(60, value * 0.008);
-  if (reqString.includes('fragile') || reqString.includes('handle with care')) cost += 35;
-  if (reqString.includes('hazardous') || reqString.includes('dangerous')) cost += 150;
-  if (reqString.includes('temperature') || reqString.includes('refrigerated')) cost += 95;
-  if (reqString.includes('customs') || reqString.includes('clearance')) cost += 55;
-  if (reqString.includes('express') || reqString.includes('urgent')) cost += 75;
-  
-  return cost;
 }

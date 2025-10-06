@@ -47,19 +47,18 @@ export async function GET(request: NextRequest) {
       apiKey: OPENAI_API_KEY,
     });
 
-    let relevantDocs = [];
+    let relevantDocs: Array<{ pageContent: string }> = [];
     if (strategy === 'user') {
       const collectionName = `user_${userId}`;
       try {
         const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
           url: QDRANT_URL,
           apiKey: QDRANT_API_KEY,
-          collectionName,
-          checkCompatibility: false,
+          collectionName
         });
         const retriever = vectorStore.asRetriever({ k: 5 });
-        relevantDocs = await retriever.invoke(userQuery);
-      } catch (error) {
+        relevantDocs = await retriever.invoke(userQuery) as Array<{ pageContent: string }>;
+      } catch (_error) {
         console.log(`Collection ${collectionName} not found`);
       }
     }

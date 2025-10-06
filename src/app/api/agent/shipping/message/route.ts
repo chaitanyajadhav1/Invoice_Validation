@@ -1,7 +1,10 @@
+// src/app/api/agent/shipping/message/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserToken } from '@/lib/auth';
 import { saveShippingQuote } from '@/lib/database';
-import { getOrCreateAgent, createNewSession } from '@/lib/agent';
+import { ShippingAgent, generateShippingQuote, formatQuoteResponse } from '@/lib/agent';
+
+const agent = new ShippingAgent();
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,7 +12,7 @@ export async function POST(request: NextRequest) {
     const token = authHeader?.split(' ')[1];
     
     if (!token) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Authentication required',
         requiresAuth: true
       }, { status: 401 });
@@ -17,7 +20,7 @@ export async function POST(request: NextRequest) {
     
     const userId = await verifyUserToken(token);
     if (!userId) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Invalid or expired token',
         requiresAuth: true
       }, { status: 401 });
@@ -26,74 +29,62 @@ export async function POST(request: NextRequest) {
     const { threadId, message } = await request.json();
     
     if (!threadId || !message) {
-      return NextResponse.json({ error: 'threadId and message required' }, { status: 400 });
+      return NextResponse.json({ 
+        error: 'threadId and message required' 
+      }, { status: 400 });
     }
 
-    const { shippingAgent, checkpointer } = await getOrCreateAgent();
+    console.log(`[Agent] Processing message for thread ${threadId}:`, message.substring(0, 50));
 
-    const config = {
-      configurable: { thread_id: threadId }
-    };
+    // Process message through the agent
+    const result = await agent.processMessage(threadId, userId, message);
 
-    const snapshot = await checkpointer!.get(config);
-    
-    let result;
-    if (!snapshot) {
-      // Create a new session automatically
-      console.log('Session not found, creating new session for threadId:', threadId);
-      result = await createNewSession(userId, threadId);
+    let finalResponse = result.response;
+    let quote = null;
+    let completed = false;
+
+    // Generate quote if requested
+    if (result.shouldGenerateQuote) {
+      console.log('[Agent] Generating shipping quote...');
       
-      // Add the user message to the new session
-      result.messages.push({
-        role: 'user',
-        content: message,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Process the message in the new session
-      const config2 = {
-        configurable: { thread_id: threadId }
-      };
-      result = await shippingAgent.invoke(result, config2);
-    } else {
-      // Use existing session
-      const currentState = snapshot.channel_values;
-
-      currentState.messages.push({
-        role: 'user',
-        content: message,
-        timestamp: new Date().toISOString()
-      });
-
-      result = await shippingAgent.invoke(currentState, config);
-    }
-
-    if (result.completed && result.quote) {
       try {
-        await saveShippingQuote(threadId, result.quote, userId);
-      } catch (error) {
-        console.error('Failed to save quote:', error);
+        quote = await generateShippingQuote(result.state.shipmentData);
+        
+        // Format the quote response
+        finalResponse = formatQuoteResponse(
+          quote,
+          result.state.shipmentData,
+          result.state.invoiceIds.length
+        );
+
+        // Save quote to database
+        await saveShippingQuote(threadId, quote, userId);
+        
+        completed = true;
+        console.log('[Agent] Quote generated and saved successfully');
+      } catch (quoteError) {
+        console.error('[Agent] Error generating quote:', quoteError);
+        finalResponse = 'I encountered an error generating quotes. Please try again or contact support.';
       }
     }
 
     return NextResponse.json({
       success: true,
       threadId,
-      message: result.output,
-      currentPhase: result.currentPhase,
-      shipmentData: result.shipmentData,
-      quote: result.quote,
-      completed: result.completed,
-      nextAction: result.nextAction,
-      invoices: result.shipmentData.invoices || []
+      message: finalResponse,
+      currentPhase: result.state.currentStep,
+      shipmentData: result.state.shipmentData,
+      quote,
+      completed,
+      invoices: result.state.invoiceIds || []
     });
 
   } catch (error: any) {
-    console.error('Agent message error:', error);
-    return NextResponse.json({ 
-      success: false, 
+    console.error('[Agent] Message processing error:', error);
+    return NextResponse.json({
+      success: false,
       error: 'Failed to process message',
-      details: error.message 
+      details: error.message
     }, { status: 500 });
   }
 }

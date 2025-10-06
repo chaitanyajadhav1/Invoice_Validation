@@ -3,18 +3,22 @@ import { redis } from '@/lib/config';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const documentIds = await redis.smembers(`user:${params.userId}:documents`);
-    const metadata = await redis.hgetall(`user:${params.userId}:doc_metadata`);
+    // Await params before accessing properties
+    const { userId } = await params;
+    
+    const documentIds = await redis.smembers(`user:${userId}:documents`);
+    const metadata = await redis.hgetall(`user:${userId}:doc_metadata`);
+    const metaMap: Record<string, string> = (metadata ?? {}) as Record<string, string>;
     
     const documents = documentIds.map(id => ({
       documentId: id,
-      ...JSON.parse(metadata[id] || '{}')
+      ...JSON.parse((metaMap[id] ?? '{}') as string)
     }));
     
-    return NextResponse.json({ userId: params.userId, documents });
+    return NextResponse.json({ userId, documents });
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

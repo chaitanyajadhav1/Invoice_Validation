@@ -4,7 +4,7 @@ import { getSessionInvoices } from '@/lib/database';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { threadId: string } }
+  { params }: { params: Promise<{ threadId: string }> }
 ) {
   try {
     const authHeader = request.headers.get('authorization');
@@ -25,11 +25,14 @@ export async function GET(
       }, { status: 401 });
     }
 
-    const invoices = await getSessionInvoices(params.threadId);
+    // Await params before accessing its properties
+    const { threadId } = await params;
+
+    const invoices = await getSessionInvoices(threadId);
     
     return NextResponse.json({
       success: true,
-      threadId: params.threadId,
+      threadId: threadId,
       invoices: invoices.map(inv => ({
         invoiceId: inv.invoice_id,
         filename: inv.filename,

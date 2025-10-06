@@ -63,6 +63,7 @@ import {
   Storage as StorageIcon,
   Refresh as RefreshIcon,
   Visibility as VisibilityIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 
 // Types
@@ -195,15 +196,43 @@ interface RedisDocumentMetadata {
 
 interface RedisInvoiceData {
   invoiceId: string;
-  userId: string;
-  sessionId?: string;
-  bookingId?: string;
   filename: string;
-  fileSize: number;
-  totalPages: number;
-  analysis: any;
+  uploadedAt: string;
   processedAt: string;
-  version: string;
+  status: string;
+  userId: string;
+  threadId?: string;
+  details: {
+    invoiceNo?: string;
+    date?: string;
+    consignee: {
+      name?: string;
+      address?: string;
+    };
+    exporter: {
+      name?: string;
+      address?: string;
+    };
+    incoterms?: string;
+    bankDetails: {
+      bankName?: string;
+      accountNo?: string;
+    };
+    shipping: {
+      placeOfReceipt?: string;
+      portOfLoading?: string;
+      finalDestination?: string;
+    };
+    signature: boolean;
+    itemCount: number;
+    items: any[];
+  };
+  validation: {
+    isValid: boolean;
+    completeness: number;
+    errors: string[];
+    warnings: string[];
+  };
 }
 
 interface RedisDocumentData {
@@ -220,7 +249,63 @@ interface RedisDocumentData {
   version: string;
 }
 
-// API base URLs - using Next.js API routes
+interface InvoiceLookupData {
+  success: boolean;
+  invoiceId: string;
+  invoice: {
+    file: {
+      filename: string;
+      filepath: string;
+      uploadedAt: string;
+      processedAt: string;
+    };
+    basicInfo: {
+      invoiceNo: string;
+      date: string;
+      status: string;
+    };
+    parties: {
+      consignee: {
+        name: string;
+        address: string;
+      };
+      exporter: {
+        name: string;
+        address: string;
+      };
+    };
+    tradeTerms: {
+      incoterms: string;
+    };
+    bankDetails: {
+      bankName: string;
+      accountNo: string;
+    };
+    shipping: {
+      placeOfReceipt: string;
+      portOfLoading: string;
+      finalDestination: string;
+    };
+    items: {
+      count: number;
+      list: any[];
+    };
+    verification: {
+      hasSignature: boolean;
+    };
+    validation: {
+      isValid: boolean;
+      completeness: number;
+      errors: string[];
+      warnings: string[];
+    };
+    metadata: {
+      userId: string;
+      threadId: string;
+    };
+  };
+}
+
 const API_BASE = '/api';
 const WORKER_BASE = '/api/worker';
 
@@ -269,6 +354,10 @@ export default function FreightChatPro() {
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState<boolean>(false);
   const [documentDialogOpen, setDocumentDialogOpen] = useState<boolean>(false);
 
+  const [invoiceLookupNumber, setInvoiceLookupNumber] = useState<string>('');
+  const [invoiceLookupData, setInvoiceLookupData] = useState<InvoiceLookupData | null>(null);
+  const [invoiceLookupLoading, setInvoiceLookupLoading] = useState<boolean>(false);
+
   const [authData, setAuthData] = useState<AuthData>({
     userId: '',
     name: '',
@@ -279,7 +368,6 @@ export default function FreightChatPro() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const invoiceInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle client-side mounting
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -305,20 +393,46 @@ export default function FreightChatPro() {
     }
   }, [mounted]);
 
+  const fetchInvoiceByNumber = async (): Promise<void> => {
+    if (!invoiceLookupNumber.trim()) {
+      setSnackbar({ open: true, message: 'Please enter an invoice number', severity: 'warning' });
+      return;
+    }
+
+    setInvoiceLookupLoading(true);
+    try {
+      const response = await fetch(`http://localhost:3000/api/invoice/lookup?invoiceNo=${encodeURIComponent(invoiceLookupNumber)}`);
+      const data: InvoiceLookupData = await response.json();
+
+      if (data.success) {
+        setInvoiceLookupData(data);
+        setSnackbar({ open: true, message: 'Invoice found successfully', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: 'Invoice not found', severity: 'error' });
+        setInvoiceLookupData(null);
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to lookup invoice', severity: 'error' });
+      setInvoiceLookupData(null);
+    } finally {
+      setInvoiceLookupLoading(false);
+    }
+  };
+
   const fetchRedisData = async (userId: string): Promise<void> => {
     setRedisLoading(true);
     try {
-      const invoicesResponse = await fetch(`${WORKER_BASE}/api/user/${userId}/invoices`);
+      const invoicesResponse = await fetch(`${WORKER_BASE}/user/${userId}/invoices`);
       if (invoicesResponse.ok) {
         const invoicesData = await invoicesResponse.json();
         setRedisInvoices(invoicesData.invoices || []);
       }
 
-      const documentsResponse = await fetch(`${WORKER_BASE}/api/user/${userId}/documents`);
+      const documentsResponse = await fetch(`${WORKER_BASE}/user/${userId}/documents`);
       if (documentsResponse.ok) {
         const documentsData = await documentsResponse.json();
         setRedisDocuments(documentsData.documents || []);
-      }
+      } 
     } catch (error) {
       console.error('Failed to fetch Redis data:', error);
     } finally {
@@ -328,11 +442,15 @@ export default function FreightChatPro() {
 
   const fetchInvoiceDetails = async (invoiceId: string): Promise<void> => {
     try {
-      const response = await fetch(`${WORKER_BASE}/api/invoice/${invoiceId}`);
+      const response = await fetch(`${WORKER_BASE}/invoice/${invoiceId}`);
       if (response.ok) {
         const data = await response.json();
-        setSelectedInvoiceData(data);
-        setInvoiceDialogOpen(true);
+        if (data.success && data.invoice) {
+          setSelectedInvoiceData(data.invoice);
+          setInvoiceDialogOpen(true);
+        } else {
+          setSnackbar({ open: true, message: data.error || 'Failed to fetch invoice details', severity: 'error' });
+        }
       } else {
         setSnackbar({ open: true, message: 'Failed to fetch invoice details', severity: 'error' });
       }
@@ -343,7 +461,7 @@ export default function FreightChatPro() {
 
   const fetchDocumentDetails = async (documentId: string): Promise<void> => {
     try {
-      const response = await fetch(`${WORKER_BASE}/api/document/${documentId}`);
+      const response = await fetch(`${WORKER_BASE}/document/${documentId}`);
       if (response.ok) {
         const data = await response.json();
         setSelectedDocumentData(data);
@@ -568,7 +686,6 @@ export default function FreightChatPro() {
 
       if (response.ok) {
         setSnackbar({ open: true, message: 'Document uploaded successfully', severity: 'success' });
-        // Refresh documents immediately
         await fetchUserDocuments(token);
         if (user) {
           setTimeout(() => fetchRedisData(user.userId), 2000);
@@ -612,12 +729,13 @@ export default function FreightChatPro() {
   const handleInvoiceUpload = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0];
     if (!file || !token || !agentThreadId) return;
-
+  
     setInvoiceUploading(true);
     const formData = new FormData();
-    formData.append('invoice', file);
+    formData.append('file', file);
     formData.append('threadId', agentThreadId);
-
+    formData.append('userId', user?.userId || 'anonymous');
+  
     try {
       const response = await fetch(`${API_BASE}/agent/shipping/upload-invoice`, {
         method: 'POST',
@@ -626,9 +744,9 @@ export default function FreightChatPro() {
         },
         body: formData
       });
-
+  
       const data = await response.json();
-
+  
       if (data.success) {
         setSnackbar({ open: true, message: 'Invoice uploaded successfully', severity: 'success' });
         
@@ -638,7 +756,7 @@ export default function FreightChatPro() {
           timestamp: new Date().toISOString()
         };
         setAgentMessages(prev => [...prev, systemMessage]);
-
+  
         fetchSessionInvoices();
         if (user) {
           setTimeout(() => fetchRedisData(user.userId), 2000);
@@ -755,7 +873,6 @@ export default function FreightChatPro() {
     }
   };
 
-  // Render nothing until mounted to avoid hydration mismatch
   if (!mounted) {
     return null;
   }
@@ -788,124 +905,374 @@ export default function FreightChatPro() {
         </Alert>
       </Paper>
 
-     <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-  <Box sx={{ flex: '1 1 45%', minWidth: '300px' }}>
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        <Badge badgeContent={redisInvoices.length} color="primary">
-          Invoices in Redis
-        </Badge>
-      </Typography>
-      
-      {redisInvoices.length > 0 ? (
-        <List>
-          {redisInvoices.map((invoice) => (
-            <Card key={invoice.invoiceId} sx={{ mb: 2 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {invoice.filename}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Type: {invoice.documentType}
-                    </Typography>
-                    {invoice.invoiceNumber && (
-                      <Typography variant="body2" color="text.secondary">
-                        Invoice #: {invoice.invoiceNumber}
-                      </Typography>
-                    )}
-                    {invoice.totalAmount && (
-                      <Typography variant="body2" color="primary" fontWeight="bold">
-                        {invoice.currency} {invoice.totalAmount}
-                      </Typography>
-                    )}
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(invoice.processedAt).toLocaleString()}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    {invoice.readyForBooking && (
-                      <Chip 
-                        label="Ready" 
-                        color="success" 
-                        size="small" 
-                        sx={{ mb: 1 }}
-                      />
-                    )}
-                    <IconButton
-                      size="small"
-                      onClick={() => fetchInvoiceDetails(invoice.invoiceId)}
-                      color="primary"
-                    >
-                      <VisibilityIcon />
-                    </IconButton>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
-        </List>
-      ) : (
-        <Alert severity="info">
-          No invoices in Redis yet. Upload an invoice to see it here.
-        </Alert>
-      )}
-    </Paper>
-  </Box>
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SearchIcon color="primary" />
+          Invoice Lookup by Number
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            placeholder="Enter invoice number (e.g., INV-2025-009)"
+            value={invoiceLookupNumber}
+            onChange={(e) => setInvoiceLookupNumber(e.target.value)}
+            onKeyPress={(e) => { if (e.key === 'Enter') fetchInvoiceByNumber(); }}
+            size="small"
+          />
+          <Button
+            variant="contained"
+            onClick={fetchInvoiceByNumber}
+            disabled={invoiceLookupLoading || !invoiceLookupNumber.trim()}
+            startIcon={invoiceLookupLoading ? <CircularProgress size={20} /> : <SearchIcon />}
+          >
+            {invoiceLookupLoading ? 'Searching...' : 'Lookup'}
+          </Button>
+        </Box>
 
-  <Box sx={{ flex: '1 1 45%', minWidth: '300px' }}>
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        <Badge badgeContent={redisDocuments.length} color="primary">
-          Documents in Redis
-        </Badge>
-      </Typography>
-      
-      {redisDocuments.length > 0 ? (
-        <List>
-          {redisDocuments.map((doc) => (
-            <Card key={doc.documentId} sx={{ mb: 2 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {doc.filename}
+        {invoiceLookupData && (
+          <Card sx={{ mt: 2 }}>
+            <CardContent>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Invoice Found: {invoiceLookupData.invoice.basicInfo.invoiceNo}
+                </Typography>
+                <Chip 
+                  label={invoiceLookupData.invoice.basicInfo.status} 
+                  color={invoiceLookupData.invoice.basicInfo.status === 'processed' ? 'success' : 'warning'}
+                  size="small"
+                  sx={{ mb: 1 }}
+                />
+              </Box>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Basic Information</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Invoice ID</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoiceId}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Invoice No</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.basicInfo.invoiceNo}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Date</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.basicInfo.date}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Filename</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.file.filename}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Processed At</strong></TableCell>
+                        <TableCell>{new Date(invoiceLookupData.invoice.file.processedAt).toLocaleString()}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Parties</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Exporter</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.parties.exporter.name.replace(/<br\/>/g, ', ')}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Exporter Address</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.parties.exporter.address}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Consignee</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.parties.consignee.name.replace(/<br\/>/g, ', ')}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Consignee Address</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.parties.consignee.address}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Shipping Details</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Incoterms</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.tradeTerms.incoterms}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Place of Receipt</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.shipping.placeOfReceipt}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Port of Loading</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.shipping.portOfLoading}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Final Destination</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.shipping.finalDestination}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Bank Details</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Bank Details</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.bankDetails.bankName.replace(/<br\/>/g, ', ')}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Account No</strong></TableCell>
+                        <TableCell>{invoiceLookupData.invoice.bankDetails.accountNo}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">
+                    Items ({invoiceLookupData.invoice.items.count})
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {invoiceLookupData.invoice.items.list && invoiceLookupData.invoice.items.list.length > 0 ? (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Description</TableCell>
+                            <TableCell>Quantity</TableCell>
+                            <TableCell>Unit Price</TableCell>
+                            <TableCell>Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {invoiceLookupData.invoice.items.list.map((item: any, idx: number) => (
+                            <TableRow key={idx}>
+                              <TableCell>{item.description || 'N/A'}</TableCell>
+                              <TableCell>{item.quantity || 'N/A'}</TableCell>
+                              <TableCell>{item.unit_price || 'N/A'}</TableCell>
+                              <TableCell>{item.amount || 'N/A'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  ) : (
+                    <Alert severity="info">No items extracted</Alert>
+                  )}
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">
+                    Validation ({invoiceLookupData.invoice.validation.completeness}% Complete)
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" gutterBottom>
+                      <strong>Valid:</strong>{' '}
+                      <Chip 
+                        label={invoiceLookupData.invoice.validation.isValid ? 'Yes' : 'No'}
+                        color={invoiceLookupData.invoice.validation.isValid ? 'success' : 'error'}
+                        size="small"
+                      />
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Type: {doc.documentType}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(doc.processedAt).toLocaleString()}
+                    <Typography variant="body2" gutterBottom>
+                      <strong>Signature:</strong>{' '}
+                      <Chip 
+                        label={invoiceLookupData.invoice.verification.hasSignature ? 'Present' : 'Missing'}
+                        color={invoiceLookupData.invoice.verification.hasSignature ? 'success' : 'warning'}
+                        size="small"
+                      />
                     </Typography>
                   </Box>
-                  <IconButton
-                    size="small"
-                    onClick={() => fetchDocumentDetails(doc.documentId)}
-                    color="primary"
-                  >
-                    <VisibilityIcon />
-                  </IconButton>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
-        </List>
-      ) : (
-        <Alert severity="info">
-          No documents in Redis yet. Upload a PDF to see it here.
-        </Alert>
-      )}
-    </Paper>
-  </Box>
-</Box>
+
+                  {invoiceLookupData.invoice.validation.errors && invoiceLookupData.invoice.validation.errors.length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" color="error" gutterBottom>
+                        Errors:
+                      </Typography>
+                      {invoiceLookupData.invoice.validation.errors.map((error: string, idx: number) => (
+                        <Alert key={idx} severity="error" sx={{ mb: 1 }}>
+                          {error}
+                        </Alert>
+                      ))}
+                    </Box>
+                  )}
+
+                  {invoiceLookupData.invoice.validation.warnings && invoiceLookupData.invoice.validation.warnings.length > 0 && (
+                    <Box>
+                      <Typography variant="subtitle2" color="warning.main" gutterBottom>
+                        Warnings:
+                      </Typography>
+                      {invoiceLookupData.invoice.validation.warnings.map((warning: string, idx: number) => (
+                        <Alert key={idx} severity="warning" sx={{ mb: 1 }}>
+                          {warning}
+                        </Alert>
+                      ))}
+                    </Box>
+                  )}
+
+                  {(!invoiceLookupData.invoice.validation.errors || invoiceLookupData.invoice.validation.errors.length === 0) && 
+                   (!invoiceLookupData.invoice.validation.warnings || invoiceLookupData.invoice.validation.warnings.length === 0) && (
+                    <Alert severity="success">
+                      No validation issues found
+                    </Alert>
+                  )}
+                </AccordionDetails>
+              </Accordion>
+            </CardContent>
+          </Card>
+        )}
+      </Paper>
+
+      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+        <Box sx={{ flex: '1 1 45%', minWidth: '300px' }}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              <Badge badgeContent={redisInvoices.length} color="primary">
+                Invoices in Redis
+              </Badge>
+            </Typography>
+            
+            {redisInvoices.length > 0 ? (
+              <List>
+                {redisInvoices.map((invoice) => (
+                  <Card key={invoice.invoiceId} sx={{ mb: 2 }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {invoice.filename}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Type: {invoice.documentType}
+                          </Typography>
+                          {invoice.invoiceNumber && (
+                            <Typography variant="body2" color="text.secondary">
+                              Invoice #: {invoice.invoiceNumber}
+                            </Typography>
+                          )}
+                          {invoice.totalAmount && (
+                            <Typography variant="body2" color="primary" fontWeight="bold">
+                              {invoice.currency} {invoice.totalAmount}
+                            </Typography>
+                          )}
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(invoice.processedAt).toLocaleString()}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          {invoice.readyForBooking && (
+                            <Chip 
+                              label="Ready" 
+                              color="success" 
+                              size="small" 
+                              sx={{ mb: 1 }}
+                            />
+                          )}
+                          <IconButton
+                            size="small"
+                            onClick={() => fetchInvoiceDetails(invoice.invoiceId)}
+                            color="primary"
+                          >
+                            <VisibilityIcon />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </List>
+            ) : (
+              <Alert severity="info">
+                No invoices in Redis yet. Upload an invoice to see it here.
+              </Alert>
+            )}
+          </Paper>
+        </Box>
+
+        <Box sx={{ flex: '1 1 45%', minWidth: '300px' }}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              <Badge badgeContent={redisDocuments.length} color="primary">
+                Documents in Redis
+              </Badge>
+            </Typography>
+            
+            {redisDocuments.length > 0 ? (
+              <List>
+                {redisDocuments.map((doc) => (
+                  <Card key={doc.documentId} sx={{ mb: 2 }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {doc.filename}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Type: {doc.documentType}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(doc.processedAt).toLocaleString()}
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          size="small"
+                          onClick={() => fetchDocumentDetails(doc.documentId)}
+                          color="primary"
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </List>
+            ) : (
+              <Alert severity="info">
+                No documents in Redis yet. Upload a PDF to see it here.
+              </Alert>
+            )}
+          </Paper>
+        </Box>
+      </Box>
+
       <Dialog 
         open={invoiceDialogOpen} 
         onClose={() => setInvoiceDialogOpen(false)}
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Invoice Details from Redis</DialogTitle>
+        <DialogTitle>Commercial Invoice Details</DialogTitle>
         <DialogContent>
           {selectedInvoiceData && (
             <Box sx={{ mt: 2 }}>
@@ -921,51 +1288,204 @@ export default function FreightChatPro() {
                         <TableCell>{selectedInvoiceData.filename}</TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell><strong>File Size</strong></TableCell>
-                        <TableCell>{(selectedInvoiceData.fileSize / 1024).toFixed(2)} KB</TableCell>
+                        <TableCell><strong>Invoice No</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.invoiceNo || 'N/A'}</TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell><strong>Pages</strong></TableCell>
-                        <TableCell>{selectedInvoiceData.totalPages}</TableCell>
+                        <TableCell><strong>Date</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.date || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Status</strong></TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={selectedInvoiceData.status} 
+                            color={selectedInvoiceData.status === 'processed' ? 'success' : 'warning'}
+                            size="small"
+                          />
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Processed</strong></TableCell>
+                        <TableCell>{new Date(selectedInvoiceData.processedAt).toLocaleString()}</TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </AccordionDetails>
               </Accordion>
 
-              {selectedInvoiceData.analysis && (
-                <Accordion>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography fontWeight="bold">Financial Details</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Table size="small">
-                      <TableBody>
-                        {selectedInvoiceData.analysis.financials?.totalAmount && (
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Parties</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Exporter Name</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.exporter.name || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Exporter Address</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.exporter.address || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Consignee Name</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.consignee.name || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Consignee Address</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.consignee.address || 'N/A'}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Shipping Details</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Incoterms</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.incoterms || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Place of Receipt</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.shipping.placeOfReceipt || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Port of Loading</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.shipping.portOfLoading || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Final Destination</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.shipping.finalDestination || 'N/A'}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">Bank Details</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Bank Name</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.bankDetails.bankName || 'N/A'}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Account No</strong></TableCell>
+                        <TableCell>{selectedInvoiceData.details.bankDetails.accountNo || 'N/A'}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">
+                    Items ({selectedInvoiceData.details.itemCount})
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {selectedInvoiceData.details.items.length > 0 ? (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
                           <TableRow>
-                            <TableCell><strong>Total Amount</strong></TableCell>
-                            <TableCell>
-                              {selectedInvoiceData.analysis.financials.currency} {selectedInvoiceData.analysis.financials.totalAmount}
-                            </TableCell>
+                            <TableCell>Description</TableCell>
+                            <TableCell>Quantity</TableCell>
+                            <TableCell>Unit Price</TableCell>
+                            <TableCell>Amount</TableCell>
                           </TableRow>
-                        )}
-                        {selectedInvoiceData.analysis.validation && (
-                          <TableRow>
-                            <TableCell><strong>Ready for Booking</strong></TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={selectedInvoiceData.analysis.validation.readyForBooking ? 'Yes' : 'No'}
-                                color={selectedInvoiceData.analysis.validation.readyForBooking ? 'success' : 'warning'}
-                                size="small"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </AccordionDetails>
-                </Accordion>
-              )}
+                        </TableHead>
+                        <TableBody>
+                          {selectedInvoiceData.details.items.map((item: any, idx: number) => (
+                            <TableRow key={idx}>
+                              <TableCell>{item.description || 'N/A'}</TableCell>
+                              <TableCell>{item.quantity || 'N/A'}</TableCell>
+                              <TableCell>{item.unit_price || 'N/A'}</TableCell>
+                              <TableCell>{item.amount || 'N/A'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  ) : (
+                    <Alert severity="info">No items extracted</Alert>
+                  )}
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight="bold">
+                    Validation ({selectedInvoiceData.validation.completeness}% Complete)
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" gutterBottom>
+                      <strong>Valid:</strong> {' '}
+                      <Chip 
+                        label={selectedInvoiceData.validation.isValid ? 'Yes' : 'No'}
+                        color={selectedInvoiceData.validation.isValid ? 'success' : 'error'}
+                        size="small"
+                      />
+                    </Typography>
+                    <Typography variant="body2" gutterBottom>
+                      <strong>Signature:</strong> {' '}
+                      <Chip 
+                        label={selectedInvoiceData.details.signature ? 'Present' : 'Missing'}
+                        color={selectedInvoiceData.details.signature ? 'success' : 'warning'}
+                        size="small"
+                      />
+                    </Typography>
+                  </Box>
+
+                  {selectedInvoiceData.validation.errors.length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" color="error" gutterBottom>
+                        Errors:
+                      </Typography>
+                      {selectedInvoiceData.validation.errors.map((error: string, idx: number) => (
+                        <Alert key={idx} severity="error" sx={{ mb: 1 }}>
+                          {error}
+                        </Alert>
+                      ))}
+                    </Box>
+                  )}
+
+                  {selectedInvoiceData.validation.warnings.length > 0 && (
+                    <Box>
+                      <Typography variant="subtitle2" color="warning.main" gutterBottom>
+                        Warnings:
+                      </Typography>
+                      {selectedInvoiceData.validation.warnings.map((warning: string, idx: number) => (
+                        <Alert key={idx} severity="warning" sx={{ mb: 1 }}>
+                          {warning}
+                        </Alert>
+                      ))}
+                    </Box>
+                  )}
+
+                  {selectedInvoiceData.validation.errors.length === 0 && 
+                   selectedInvoiceData.validation.warnings.length === 0 && (
+                    <Alert severity="success">
+                      No validation issues found
+                    </Alert>
+                  )}
+                </AccordionDetails>
+              </Accordion>
             </Box>
           )}
         </DialogContent>
