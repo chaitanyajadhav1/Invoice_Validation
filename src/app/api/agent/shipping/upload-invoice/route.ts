@@ -1,17 +1,24 @@
 // src/app/api/agent/shipping/upload-invoice/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { createClient } from '@supabase/supabase-js';
 import { redis } from '@/lib/config';
 import { extractAndValidateInvoice } from '@/lib/agent';
-import { createInvoiceRecord } from '@/lib/database';
+import { createInvoiceRecord, verifyInvoiceSaved } from '@/lib/database';
 
 // Force Node.js runtime
 export const runtime = 'nodejs';
 
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use service role for storage access
+);
+
 // ============================================
-// VALIDATION FUNCTION - Checks if data is valid BEFORE storing
+// VALIDATION FUNCTION
 // ============================================
+// Replace the validateInvoiceData function in upload-invoice/route.ts
+
 function validateInvoiceData(extractedData: any): { 
   isValid: boolean; 
   errors: string[]; 
@@ -20,37 +27,69 @@ function validateInvoiceData(extractedData: any): {
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // 🔍 DEBUG: Log what we received
+  console.log('[Validation] Extracted Data Structure:', {
+    invoiceNo: extractedData.invoiceNo,
+    date: extractedData.date,
+    consignee: extractedData.consignee,
+    exporter: extractedData.exporter,
+    incoterms: extractedData.incoterms,
+    bankDetails: extractedData.bankDetails
+  });
+
   // 1. Invoice No - Must Exist
   if (!extractedData.invoiceNo || extractedData.invoiceNo === 'N/A' || extractedData.invoiceNo.trim() === '') {
     errors.push('Invoice Number is missing or invalid');
+    console.log('[Validation] ❌ Invoice No missing');
+  } else {
+    console.log('[Validation] ✅ Invoice No:', extractedData.invoiceNo);
   }
 
   // 2. Date - Must Exist
   if (!extractedData.date || extractedData.date === 'N/A' || extractedData.date.trim() === '') {
     errors.push('Invoice Date is missing or invalid');
+    console.log('[Validation] ❌ Date missing');
+  } else {
+    console.log('[Validation] ✅ Date:', extractedData.date);
   }
 
   // 3. Consignee - Must Exist with all details
   if (!extractedData.consignee || typeof extractedData.consignee !== 'object') {
     errors.push('Consignee information is missing');
+    console.log('[Validation] ❌ Consignee object missing');
   } else {
     if (!extractedData.consignee.name || extractedData.consignee.name === 'N/A' || extractedData.consignee.name.trim() === '') {
       errors.push('Consignee Name is missing');
+      console.log('[Validation] ❌ Consignee Name missing');
+    } else {
+      console.log('[Validation] ✅ Consignee Name:', extractedData.consignee.name);
     }
+    
     if (!extractedData.consignee.address || extractedData.consignee.address === 'N/A' || extractedData.consignee.address.trim() === '') {
       errors.push('Consignee Address is missing');
+      console.log('[Validation] ❌ Consignee Address missing');
+    } else {
+      console.log('[Validation] ✅ Consignee Address exists');
     }
   }
 
   // 4. Exporter - Must Exist with all details
   if (!extractedData.exporter || typeof extractedData.exporter !== 'object') {
     errors.push('Exporter information is missing');
+    console.log('[Validation] ❌ Exporter object missing');
   } else {
     if (!extractedData.exporter.name || extractedData.exporter.name === 'N/A' || extractedData.exporter.name.trim() === '') {
       errors.push('Exporter Name is missing');
+      console.log('[Validation] ❌ Exporter Name missing');
+    } else {
+      console.log('[Validation] ✅ Exporter Name:', extractedData.exporter.name);
     }
+    
     if (!extractedData.exporter.address || extractedData.exporter.address === 'N/A' || extractedData.exporter.address.trim() === '') {
       errors.push('Exporter Address is missing');
+      console.log('[Validation] ❌ Exporter Address missing');
+    } else {
+      console.log('[Validation] ✅ Exporter Address exists');
     }
   }
 
@@ -58,26 +97,38 @@ function validateInvoiceData(extractedData: any): {
   const validIncoterms = ['EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP', 'FAS', 'FOB', 'CFR', 'CIF'];
   if (!extractedData.incoterms || extractedData.incoterms === 'N/A' || extractedData.incoterms.trim() === '') {
     errors.push('Incoterms is missing');
+    console.log('[Validation] ❌ Incoterms missing');
   } else {
     const incoterm = extractedData.incoterms.toUpperCase().trim();
     if (!validIncoterms.includes(incoterm)) {
       errors.push(`Invalid Incoterms: ${extractedData.incoterms}. Must be one of: ${validIncoterms.join(', ')}`);
+      console.log('[Validation] ❌ Invalid Incoterms:', extractedData.incoterms);
+    } else {
+      console.log('[Validation] ✅ Incoterms:', extractedData.incoterms);
     }
   }
 
   // 6. Bank Details - Must Exist
   if (!extractedData.bankDetails || typeof extractedData.bankDetails !== 'object') {
     errors.push('Bank Details are missing');
+    console.log('[Validation] ❌ Bank Details object missing');
   } else {
     if (!extractedData.bankDetails.bankName || extractedData.bankDetails.bankName === 'N/A' || extractedData.bankDetails.bankName.trim() === '') {
       errors.push('Bank Name is missing');
+      console.log('[Validation] ❌ Bank Name missing');
+    } else {
+      console.log('[Validation] ✅ Bank Name:', extractedData.bankDetails.bankName);
     }
+    
     if (!extractedData.bankDetails.accountNo || extractedData.bankDetails.accountNo === 'N/A' || extractedData.bankDetails.accountNo.trim() === '') {
       errors.push('Bank Account Number is missing');
+      console.log('[Validation] ❌ Bank Account missing');
+    } else {
+      console.log('[Validation] ✅ Bank Account exists');
     }
   }
 
-  // 7. Signature - Optional (Not Compulsory) - Only add warning if missing
+  // 7. Signature - Optional
   if (!extractedData.signature) {
     warnings.push('Signature is missing (recommended but not mandatory)');
   }
@@ -93,10 +144,17 @@ function validateInvoiceData(extractedData: any): {
     warnings.push('Final Destination is missing');
   }
 
-  // Item list validation (optional warning)
+  // Item list validation
   if (!extractedData.itemList || extractedData.itemList.length === 0) {
     warnings.push('No items found in invoice');
   }
+
+  console.log('[Validation] Summary:', {
+    isValid: errors.length === 0,
+    errorCount: errors.length,
+    warningCount: warnings.length,
+    errors: errors
+  });
 
   return {
     isValid: errors.length === 0,
@@ -105,16 +163,17 @@ function validateInvoiceData(extractedData: any): {
   };
 }
 
-// Helper function to normalize date format
+// Helper function to normalize date format (FIXED to handle DD.MM.YYYY)
 function normalizeDateFormat(dateStr: string): string {
   if (!dateStr || dateStr === 'N/A') return 'N/A';
   
   try {
     const patterns = [
-      /^(\d{2})-(\d{2})-(\d{2})$/,  // 25-10-05
-      /^(\d{4})-(\d{2})-(\d{2})$/,  // 2025-10-05
-      /^(\d{2})\/(\d{2})\/(\d{4})$/, // 10/05/2025
-      /^(\d{4})\/(\d{2})\/(\d{2})$/  // 2025/10/05
+      /^(\d{2})-(\d{2})-(\d{2})$/,      // 25-10-05
+      /^(\d{4})-(\d{2})-(\d{2})$/,      // 2025-10-05
+      /^(\d{2})\/(\d{2})\/(\d{4})$/,    // 10/05/2025
+      /^(\d{4})\/(\d{2})\/(\d{2})$/,    // 2025/10/05
+      /^(\d{2})\.(\d{2})\.(\d{4})$/     // 17.07.2025 (DD.MM.YYYY)
     ];
     
     for (const pattern of patterns) {
@@ -124,15 +183,22 @@ function normalizeDateFormat(dateStr: string): string {
         let month = match[2];
         let day = match[3];
         
+        // Handle YY-MM-DD format
         if (pattern.source.includes('(\\d{2})-(\\d{2})-(\\d{2})')) {
           year = '20' + match[1];
           month = match[2];
           day = match[3];
         }
-        else if (pattern.source.includes('(\\d{2})\\/(\\d{2})\\/(\\d{4})')) {
-          const temp = month;
-          month = match[1];
-          day = temp;
+        // Handle MM/DD/YYYY format
+        else if (pattern.source.includes('(\\d{2})/(\\d{2})/(\\d{4})')) {
+          day = match[1];
+          month = match[2];
+          year = match[3];
+        }
+        // Handle DD.MM.YYYY format
+        else if (pattern.source.includes('(\\d{2})\\.(\\d{2})\\.(\\d{4})')) {
+          day = match[1];
+          month = match[2];
           year = match[3];
         }
         
@@ -148,6 +214,7 @@ function normalizeDateFormat(dateStr: string): string {
       }
     }
     
+    // Fallback to Date parsing
     const date = new Date(dateStr);
     if (!isNaN(date.getTime())) {
       const year = date.getFullYear();
@@ -225,24 +292,51 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const randomId = Math.floor(Math.random() * 1000000000);
     const filename = `${timestamp}-${randomId}-${file.name}`;
+    const invoiceId = `inv_${timestamp}_${randomId}`;
     
-    // Ensure uploads directory exists
-    const uploadsDir = join(process.cwd(), 'uploads');
-    try {
-      await mkdir(uploadsDir, { recursive: true });
-    } catch (err) {
-      // Directory might already exist, ignore error
-    }
-
-    // Save file
-    const filepath = join(uploadsDir, filename);
+    // Convert file to buffer for processing
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    
-    await writeFile(filepath, buffer);
-    console.log(`[Upload] File saved: ${filepath}`);
 
-    // Extract text from PDF
+    // ============================================
+    // UPLOAD TO SUPABASE STORAGE
+    // ============================================
+    console.log('[Upload] Uploading to Supabase Storage...');
+    
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('invoices') // Bucket name
+      .upload(`${userId || 'anonymous'}/${filename}`, buffer, {
+        contentType: 'application/pdf',
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (uploadError) {
+      console.error('[Upload] Supabase storage error:', uploadError);
+      return NextResponse.json(
+        { error: 'Failed to upload file to storage', details: uploadError.message },
+        { status: 500 }
+      );
+    }
+
+    console.log('[Upload] File uploaded to Supabase (public storage):', uploadData.path);
+
+    // ============================================
+    // GENERATE PUBLIC URL
+    // ============================================
+    const { data: { publicUrl } } = supabase.storage
+      .from('invoices')
+      .getPublicUrl(uploadData.path);
+
+    const fileUrl = publicUrl;
+    const storagePath = uploadData.path;
+    
+    console.log('[Upload] Storage path:', storagePath);
+    console.log('[Upload] Public URL:', fileUrl);
+
+    // ============================================
+    // EXTRACT TEXT FROM PDF
+    // ============================================
     let extractedText = '';
     try {
       const pdfData = await parsePDF(buffer);
@@ -250,13 +344,19 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload] Extracted ${extractedText.length} characters from PDF`);
     } catch (pdfError) {
       console.error('[Upload] PDF parsing error:', pdfError);
+      
+      // Delete uploaded file if parsing fails
+      await supabase.storage.from('invoices').remove([uploadData.path]);
+      
       return NextResponse.json(
         { error: 'Failed to parse PDF file' },
         { status: 400 }
       );
     }
 
-    // Extract invoice data using AI
+    // ============================================
+    // EXTRACT INVOICE DATA USING AI
+    // ============================================
     console.log('[Upload] Starting invoice extraction...');
     const aiExtraction = await extractAndValidateInvoice(extractedText);
     
@@ -266,10 +366,11 @@ export async function POST(request: NextRequest) {
     console.log('[Upload] Validating extracted invoice data...');
     const validation = validateInvoiceData(aiExtraction.extractedData);
     
-    // If validation fails, return error WITHOUT storing in Redis or Database
     if (!validation.isValid) {
-      console.log('[Upload] Validation FAILED - Invoice NOT stored');
-      console.log('[Upload] Validation errors:', validation.errors);
+      console.log('[Upload] Validation FAILED - Removing file from storage');
+      
+      // Delete uploaded file if validation fails
+      await supabase.storage.from('invoices').remove([uploadData.path]);
       
       return NextResponse.json({
         success: false,
@@ -295,29 +396,26 @@ export async function POST(request: NextRequest) {
     }
 
     // ============================================
-    // VALIDATION PASSED - PROCEED WITH STORAGE
+    // VALIDATION PASSED - SAVE TO DATABASE
     // ============================================
-    console.log('[Upload] Validation PASSED - Storing invoice...');
-    
-    // Generate invoice ID
-    const invoiceId = `inv_${timestamp}_${randomId}`;
+    console.log('[Upload] Validation PASSED - Storing invoice metadata...');
 
-    // Normalize the date format
     const normalizedDate = normalizeDateFormat(aiExtraction.extractedData.date || '');
     console.log(`[Upload] Date normalized: ${aiExtraction.extractedData.date} -> ${normalizedDate}`);
 
-    // Store invoice data in Redis
+    // Prepare invoice data for database
     const invoiceData: Record<string, string | number | boolean | null> = {
       invoice_id: invoiceId,
       filename: file.name,
-      filepath,
+      file_url: fileUrl,
+      filepath: storagePath,  // ✅ Changed from 'storage_path' to 'filepath'
       uploaded_at: new Date().toISOString(),
       processed_at: new Date().toISOString(),
       status: 'valid',
       user_id: userId || 'anonymous',
       thread_id: threadId,
       
-      // Store extracted data
+      // Extracted data
       invoice_no: aiExtraction.extractedData.invoiceNo || 'N/A',
       invoice_date: normalizedDate === 'N/A' ? null : normalizedDate,
       consignee_name: aiExtraction.extractedData.consignee?.name || 'N/A',
@@ -331,7 +429,7 @@ export async function POST(request: NextRequest) {
       port_of_loading: aiExtraction.extractedData.portOfLoading || 'N/A',
       final_destination: aiExtraction.extractedData.finalDestination || 'N/A',
       
-      // Store validation results
+      // Validation results
       is_valid: true,
       completeness: 100,
       validation_errors: JSON.stringify([]),
@@ -343,26 +441,66 @@ export async function POST(request: NextRequest) {
       // Store raw text for reference (first 5000 chars)
       extracted_text: extractedText.substring(0, 5000)
     };
-     
+
     console.log('[Upload] Invoice Data prepared:', {
       invoice_id: invoiceData.invoice_id,
       invoice_no: invoiceData.invoice_no,
       invoice_date: invoiceData.invoice_date,
+      filepath: invoiceData.filepath,
       thread_id: invoiceData.thread_id,
       status: invoiceData.status
     });
-    
+
     // Store in Redis hash for fast access
     await redis.hset(`invoice:${invoiceId}`, invoiceData);
     console.log(`[Upload] Stored invoice in Redis: invoice:${invoiceId}`);
 
-    // Save to Supabase database for permanent storage
+    // ============================================
+    // SAVE TO SUPABASE DATABASE
+    // ============================================
     try {
-      await createInvoiceRecord(invoiceData);
-      console.log('[Upload] Invoice saved to database successfully');
+      console.log('[Upload] Attempting to save to database...');
+      const savedInvoice = await createInvoiceRecord(invoiceData);
+      console.log('[Upload] Invoice saved to database successfully:', savedInvoice?.invoice_id);
+      
+      // ✅ VERIFY THE SAVE
+      const verification = await verifyInvoiceSaved(invoiceId);
+      if (!verification) {
+        console.error('[Upload] ⚠️  CRITICAL: Invoice not found after save!');
+        validation.warnings.push('Invoice may not have been saved to database');
+      } else {
+        console.log('[Upload] ✅ Verification passed - Invoice exists in database');
+      }
+      
     } catch (dbError: any) {
-      console.error('[Upload] Database save failed:', dbError);
-      validation.warnings.push('Invoice stored in cache but database save failed');
+      console.error('[Upload] Database save failed:', {
+        message: dbError.message,
+        code: dbError.code,
+        details: dbError.details
+      });
+      
+      // Handle duplicate invoice number
+      if (dbError.code === '23505' && dbError.message?.includes('invoice_no')) {
+        console.warn('[Upload] ⚠️  Duplicate invoice number:', invoiceData.invoice_no);
+        validation.warnings.push(`Invoice number ${invoiceData.invoice_no} already exists in the system. This upload is stored in cache only.`);
+      }
+      // Handle missing filepath
+      else if (dbError.code === '23502' && dbError.message?.includes('filepath')) {
+        console.error('[Upload] ❌ FILEPATH IS MISSING! Current value:', invoiceData.filepath);
+        
+        // Delete uploaded file
+        await supabase.storage.from('invoices').remove([uploadData.path]);
+        
+        return NextResponse.json({
+          success: false,
+          error: 'Database configuration error: filepath missing',
+          details: 'The storage path is not being saved correctly'
+        }, { status: 500 });
+      }
+      // Other database errors
+      else {
+        validation.warnings.push('Invoice stored in cache but database save failed');
+      }
     }
 
     // Add to thread's invoice list in Redis
@@ -375,9 +513,10 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload] Added invoice to user: user:${userId}:invoices`);
     }
 
-    console.log(`[Upload] Invoice validation and storage complete:`, {
+    console.log(`[Upload] Invoice processing complete:`, {
       invoiceId,
       threadId,
+      fileUrl,
       isValid: true,
       warnings: validation.warnings.length
     });
@@ -386,6 +525,7 @@ export async function POST(request: NextRequest) {
       success: true,
       invoiceId,
       filename: file.name,
+      fileUrl,
       validation: {
         isValid: true,
         completeness: 100,

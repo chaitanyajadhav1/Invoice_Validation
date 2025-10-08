@@ -245,6 +245,33 @@ export async function createInvoiceRecord(invoiceData: any) {
   return data;
 }
 
+export async function verifyInvoiceSaved(invoiceId: string) {
+  console.log('[DB] Verifying invoice was saved:', invoiceId);
+  
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('invoice_id, invoice_no, filepath, status')
+    .eq('invoice_id', invoiceId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      console.log('[DB] Invoice not found in database');
+      return null;
+    }
+    console.error('[DB] Verification error:', error);
+    return null;
+  }
+
+  console.log('[DB] ✅ Verification success:', {
+    invoice_id: data.invoice_id,
+    invoice_no: data.invoice_no,
+    filepath: data.filepath,
+    status: data.status
+  });
+  
+  return data;
+}
 export async function getSessionInvoices(threadId: string) {
   console.log('[DB] Fetching invoices for thread:', threadId);
   
