@@ -3,10 +3,13 @@ import { getShipmentTracking } from '@/lib/database';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { trackingNumber: string } }
+  { params }: { params: Promise<{ trackingNumber: string }> }
 ) {
   try {
-    const tracking = await getShipmentTracking(params.trackingNumber);
+    // Await the params to get the actual values
+    const { trackingNumber } = await params;
+    
+    const tracking = await getShipmentTracking(trackingNumber);
     if (!tracking) {
       return NextResponse.json({ error: 'Tracking number not found' }, { status: 404 });
     }
