@@ -3,10 +3,13 @@ import { redis } from '@/lib/config';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: Promise<{ documentId: string }> }
 ) {
   try {
-    const data = await redis.get(`document:${params.documentId}`);
+    // Await the params to get the actual values
+    const { documentId } = await params;
+    
+    const data = await redis.get(`document:${documentId}`);
     
     if (!data) {
       return NextResponse.json({ error: 'Document not found in Redis' }, { status: 404 });
