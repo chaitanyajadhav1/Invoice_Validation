@@ -15,10 +15,8 @@ const supabase = createClient(
 );
 
 // ============================================
-// VALIDATION FUNCTION
+// VALIDATION FUNCTION - UPDATED & FLEXIBLE
 // ============================================
-// Replace the validateInvoiceData function in upload-invoice/route.ts
-
 function validateInvoiceData(extractedData: any): { 
   isValid: boolean; 
   errors: string[]; 
@@ -37,7 +35,9 @@ function validateInvoiceData(extractedData: any): {
     bankDetails: extractedData.bankDetails
   });
 
-  // 1. Invoice No - Must Exist
+  // ===== CRITICAL FIELDS (MUST HAVE) =====
+  
+  // 1. Invoice Number
   if (!extractedData.invoiceNo || extractedData.invoiceNo === 'N/A' || extractedData.invoiceNo.trim() === '') {
     errors.push('Invoice Number is missing or invalid');
     console.log('[Validation] ❌ Invoice No missing');
@@ -45,7 +45,7 @@ function validateInvoiceData(extractedData: any): {
     console.log('[Validation] ✅ Invoice No:', extractedData.invoiceNo);
   }
 
-  // 2. Date - Must Exist
+  // 2. Invoice Date
   if (!extractedData.date || extractedData.date === 'N/A' || extractedData.date.trim() === '') {
     errors.push('Invoice Date is missing or invalid');
     console.log('[Validation] ❌ Date missing');
@@ -53,107 +53,146 @@ function validateInvoiceData(extractedData: any): {
     console.log('[Validation] ✅ Date:', extractedData.date);
   }
 
-  // 3. Consignee - Must Exist with all details
+  // 3. Consignee Information
   if (!extractedData.consignee || typeof extractedData.consignee !== 'object') {
     errors.push('Consignee information is missing');
     console.log('[Validation] ❌ Consignee object missing');
   } else {
-    if (!extractedData.consignee.name || extractedData.consignee.name === 'N/A' || extractedData.consignee.name.trim() === '') {
+    if (!extractedData.consignee.name || extractedData.consignee.name === 'N/A') {
       errors.push('Consignee Name is missing');
       console.log('[Validation] ❌ Consignee Name missing');
     } else {
       console.log('[Validation] ✅ Consignee Name:', extractedData.consignee.name);
     }
     
-    if (!extractedData.consignee.address || extractedData.consignee.address === 'N/A' || extractedData.consignee.address.trim() === '') {
-      errors.push('Consignee Address is missing');
-      console.log('[Validation] ❌ Consignee Address missing');
+    if (!extractedData.consignee.address || extractedData.consignee.address === 'N/A') {
+      warnings.push('Consignee Address is missing (recommended)');
+      console.log('[Validation] ⚠️  Consignee Address missing');
     } else {
       console.log('[Validation] ✅ Consignee Address exists');
     }
   }
 
-  // 4. Exporter - Must Exist with all details
+  // 4. Exporter Information
   if (!extractedData.exporter || typeof extractedData.exporter !== 'object') {
     errors.push('Exporter information is missing');
     console.log('[Validation] ❌ Exporter object missing');
   } else {
-    if (!extractedData.exporter.name || extractedData.exporter.name === 'N/A' || extractedData.exporter.name.trim() === '') {
+    if (!extractedData.exporter.name || extractedData.exporter.name === 'N/A') {
       errors.push('Exporter Name is missing');
       console.log('[Validation] ❌ Exporter Name missing');
     } else {
       console.log('[Validation] ✅ Exporter Name:', extractedData.exporter.name);
     }
     
-    if (!extractedData.exporter.address || extractedData.exporter.address === 'N/A' || extractedData.exporter.address.trim() === '') {
-      errors.push('Exporter Address is missing');
-      console.log('[Validation] ❌ Exporter Address missing');
+    if (!extractedData.exporter.address || extractedData.exporter.address === 'N/A') {
+      warnings.push('Exporter Address is missing (recommended)');
+      console.log('[Validation] ⚠️  Exporter Address missing');
     } else {
       console.log('[Validation] ✅ Exporter Address exists');
     }
   }
 
-  // 5. Incoterms - Must Exist and be Valid
+  // ===== IMPORTANT FIELDS (STRONGLY RECOMMENDED) =====
+  
+  // 5. Incoterms
   const validIncoterms = ['EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP', 'FAS', 'FOB', 'CFR', 'CIF'];
-  if (!extractedData.incoterms || extractedData.incoterms === 'N/A' || extractedData.incoterms.trim() === '') {
-    errors.push('Incoterms is missing');
-    console.log('[Validation] ❌ Incoterms missing');
+  if (!extractedData.incoterms || extractedData.incoterms === 'N/A') {
+    warnings.push('Incoterms is missing (required for international shipping)');
+    console.log('[Validation] ⚠️  Incoterms missing');
   } else {
     const incoterm = extractedData.incoterms.toUpperCase().trim();
     if (!validIncoterms.includes(incoterm)) {
-      errors.push(`Invalid Incoterms: ${extractedData.incoterms}. Must be one of: ${validIncoterms.join(', ')}`);
-      console.log('[Validation] ❌ Invalid Incoterms:', extractedData.incoterms);
+      warnings.push(`Invalid Incoterms: ${extractedData.incoterms}. Should be one of: ${validIncoterms.join(', ')}`);
+      console.log('[Validation] ⚠️  Invalid Incoterms:', extractedData.incoterms);
     } else {
       console.log('[Validation] ✅ Incoterms:', extractedData.incoterms);
     }
   }
 
-  // 6. Bank Details - Must Exist
+  // 6. Bank Details - At least Bank Name OR Account Number required
   if (!extractedData.bankDetails || typeof extractedData.bankDetails !== 'object') {
-    errors.push('Bank Details are missing');
-    console.log('[Validation] ❌ Bank Details object missing');
+    warnings.push('Bank Details are missing (required for payment)');
+    console.log('[Validation] ⚠️  Bank Details object missing');
   } else {
-    if (!extractedData.bankDetails.bankName || extractedData.bankDetails.bankName === 'N/A' || extractedData.bankDetails.bankName.trim() === '') {
-      errors.push('Bank Name is missing');
-      console.log('[Validation] ❌ Bank Name missing');
-    } else {
-      console.log('[Validation] ✅ Bank Name:', extractedData.bankDetails.bankName);
-    }
+    const hasBankName = extractedData.bankDetails.bankName && 
+                        extractedData.bankDetails.bankName !== 'N/A' && 
+                        extractedData.bankDetails.bankName.trim() !== '';
     
-    if (!extractedData.bankDetails.accountNo || extractedData.bankDetails.accountNo === 'N/A' || extractedData.bankDetails.accountNo.trim() === '') {
-      errors.push('Bank Account Number is missing');
-      console.log('[Validation] ❌ Bank Account missing');
+    const hasAccountNo = extractedData.bankDetails.accountNo && 
+                         extractedData.bankDetails.accountNo !== 'N/A' && 
+                         extractedData.bankDetails.accountNo.trim() !== '';
+    
+    // CHANGED: Now only warning if BOTH are missing
+    if (!hasBankName && !hasAccountNo) {
+      warnings.push('Bank Name and Account Number are both missing (at least one required)');
+      console.log('[Validation] ⚠️  Bank Name and Account both missing');
     } else {
-      console.log('[Validation] ✅ Bank Account exists');
+      if (hasBankName) {
+        console.log('[Validation] ✅ Bank Name:', extractedData.bankDetails.bankName);
+      } else {
+        warnings.push('Bank Name is missing (recommended)');
+        console.log('[Validation] ⚠️  Bank Name missing');
+      }
+      
+      if (hasAccountNo) {
+        console.log('[Validation] ✅ Bank Account:', extractedData.bankDetails.accountNo);
+      } else {
+        warnings.push('Bank Account Number is missing (recommended for payment)');
+        console.log('[Validation] ⚠️  Bank Account missing');
+      }
     }
   }
 
-  // 7. Signature - Optional
-  if (!extractedData.signature) {
-    warnings.push('Signature is missing (recommended but not mandatory)');
-  }
-
-  // Additional validation for shipping details (optional warnings)
+  // ===== OPTIONAL FIELDS (GOOD TO HAVE) =====
+  
+  // Shipping details
   if (!extractedData.placeOfReceipt || extractedData.placeOfReceipt === 'N/A') {
-    warnings.push('Place of Receipt is missing');
+    console.log('[Validation] ℹ️  Place of Receipt not found');
+  } else {
+    console.log('[Validation] ✅ Place of Receipt:', extractedData.placeOfReceipt);
   }
+  
   if (!extractedData.portOfLoading || extractedData.portOfLoading === 'N/A') {
-    warnings.push('Port of Loading is missing');
+    console.log('[Validation] ℹ️  Port of Loading not found');
+  } else {
+    console.log('[Validation] ✅ Port of Loading:', extractedData.portOfLoading);
   }
+  
   if (!extractedData.finalDestination || extractedData.finalDestination === 'N/A') {
-    warnings.push('Final Destination is missing');
+    console.log('[Validation] ℹ️  Final Destination not found');
+  } else {
+    console.log('[Validation] ✅ Final Destination:', extractedData.finalDestination);
   }
 
-  // Item list validation
+  // Items
   if (!extractedData.itemList || extractedData.itemList.length === 0) {
-    warnings.push('No items found in invoice');
+    warnings.push('No line items found in invoice');
+    console.log('[Validation] ⚠️  No items found');
+  } else {
+    console.log('[Validation] ✅ Items found:', extractedData.itemList.length);
   }
 
+  // Total Amount
+  if (!extractedData.totalAmount) {
+    console.log('[Validation] ℹ️  Total amount not detected');
+  } else {
+    console.log('[Validation] ✅ Total Amount:', extractedData.totalAmount);
+  }
+
+  // Signature
+  if (!extractedData.signature) {
+    console.log('[Validation] ℹ️  Signature not detected');
+  } else {
+    console.log('[Validation] ✅ Signature detected');
+  }
+
+  // ===== FINAL SUMMARY =====
   console.log('[Validation] Summary:', {
     isValid: errors.length === 0,
     errorCount: errors.length,
     warningCount: warnings.length,
-    errors: errors
+    errors: errors.length > 0 ? errors : 'None'
   });
 
   return {
@@ -408,7 +447,7 @@ export async function POST(request: NextRequest) {
       invoice_id: invoiceId,
       filename: file.name,
       file_url: fileUrl,
-      filepath: storagePath,  // ✅ Changed from 'storage_path' to 'filepath'
+      filepath: storagePath,
       uploaded_at: new Date().toISOString(),
       processed_at: new Date().toISOString(),
       status: 'valid',
