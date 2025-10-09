@@ -12,12 +12,32 @@ async function getThreadInvoices(threadId: string) {
   
   const invoices = await Promise.all(
     invoiceIds.map(async (invoiceId) => {
-      const data = await redis.hgetall(`invoice:${invoiceId}`);
-      return data;
+      try {
+        // First check the type of the key
+        const keyType = await redis.type(`invoice:${invoiceId}`);
+        
+        let data;
+        if (keyType === 'hash') {
+          // Use hgetall for hash type
+          data = await redis.hgetall(`invoice:${invoiceId}`);
+        } else if (keyType === 'string') {
+          // Use get for string type and parse JSON
+          const stringData = await redis.get(`invoice:${invoiceId}`);
+          data = stringData ? JSON.parse(stringData as string) : null;
+        } else {
+          console.warn(`[Worker Invoices] Unknown key type for invoice:${invoiceId}: ${keyType}`);
+          return null;
+        }
+        
+        return data;
+      } catch (error) {
+        console.error(`[Worker Invoices] Error fetching invoice ${invoiceId}:`, error);
+        return null;
+      }
     })
   );
   
-  return invoices;
+  return invoices.filter((inv) => inv !== null);
 }
 
 // Helper function to get all invoices for a user
@@ -30,12 +50,32 @@ async function getUserInvoices(userId: string) {
   
   const invoices = await Promise.all(
     invoiceIds.map(async (invoiceId) => {
-      const data = await redis.hgetall(`invoice:${invoiceId}`);
-      return data;
+      try {
+        // First check the type of the key
+        const keyType = await redis.type(`invoice:${invoiceId}`);
+        
+        let data;
+        if (keyType === 'hash') {
+          // Use hgetall for hash type
+          data = await redis.hgetall(`invoice:${invoiceId}`);
+        } else if (keyType === 'string') {
+          // Use get for string type and parse JSON
+          const stringData = await redis.get(`invoice:${invoiceId}`);
+          data = stringData ? JSON.parse(stringData as string) : null;
+        } else {
+          console.warn(`[Worker Invoices] Unknown key type for invoice:${invoiceId}: ${keyType}`);
+          return null;
+        }
+        
+        return data;
+      } catch (error) {
+        console.error(`[Worker Invoices] Error fetching invoice ${invoiceId}:`, error);
+        return null;
+      }
     })
   );
   
-  return invoices;
+  return invoices.filter((inv) => inv !== null);
 }
 
 export async function GET(

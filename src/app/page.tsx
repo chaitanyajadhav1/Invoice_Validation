@@ -434,7 +434,7 @@ export default function FreightChatPro() {
         setRedisDocuments(documentsData.documents || []);
       } 
     } catch (error) {
-      console.error('Failed to fetch Redis data:', error);
+      console.error('Failed to fetch  data:', error);
     } finally {
       setRedisLoading(false);
     }
@@ -477,7 +477,7 @@ export default function FreightChatPro() {
   const refreshRedisData = async (): Promise<void> => {
     if (user) {
       await fetchRedisData(user.userId);
-      setSnackbar({ open: true, message: 'Redis data refreshed', severity: 'success' });
+      setSnackbar({ open: true, message: ' data refreshed', severity: 'success' });
     }
   };
 
@@ -884,7 +884,7 @@ export default function FreightChatPro() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <StorageIcon color="primary" />
             <Typography variant="h6">
-              Redis Data Storage
+              Supabase Data Storage
             </Typography>
           </Box>
           <Button
@@ -1805,7 +1805,7 @@ export default function FreightChatPro() {
               { icon: <ChatIcon />, label: 'Start Shipping Agent', action: () => { setActiveTab(0); if (!agentThreadId) startAgent(); } },
               { icon: <UploadIcon />, label: 'Upload Document', action: () => fileInputRef.current?.click() },
               { icon: <TrackIcon />, label: 'Track Shipment', action: () => setActiveTab(2) },
-              { icon: <StorageIcon />, label: 'View Redis Data', action: () => setActiveTab(4) }
+              { icon: <StorageIcon />, label: 'View  Data', action: () => setActiveTab(4) }
             ].map((action, idx) => (
               <Box key={idx} sx={{ flex: '1 1 200px' }}>
                 <Button variant={idx === 0 ? 'contained' : 'outlined'} fullWidth startIcon={action.icon} onClick={action.action} sx={{ height: '60px' }}>
@@ -1849,7 +1849,7 @@ export default function FreightChatPro() {
               { icon: <DocumentIcon />, label: 'Documents', idx: 1 },
               { icon: <TrackIcon />, label: 'Tracking', idx: 2 },
               { icon: <DashboardIcon />, label: 'Dashboard', idx: 3 },
-              { icon: <StorageIcon />, label: 'Redis Data', idx: 4, badge: redisInvoices.length + redisDocuments.length }
+              { icon: <StorageIcon />, label: 'Invoice Data', idx: 4, badge: redisInvoices.length + redisDocuments.length }
             ].map((item) => (
               <ListItemButton key={item.idx} selected={activeTab === item.idx} onClick={() => { setActiveTab(item.idx); setDrawerOpen(false); }}>
                 <ListItemIcon>{item.icon}</ListItemIcon>
@@ -1870,7 +1870,7 @@ export default function FreightChatPro() {
                 <Tab icon={<DocumentIcon />} label="Documents" />
                 <Tab icon={<TrackIcon />} label="Tracking" />
                 <Tab icon={<DashboardIcon />} label="Dashboard" />
-                <Tab icon={<Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary"><StorageIcon /></Badge>} label="Redis Data" />
+                <Tab icon={<Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary"><StorageIcon /></Badge>} label=" Data" />
               </Tabs>
             </Paper>
 
