@@ -12,7 +12,15 @@ export interface CommercialInvoiceData {
   referenceNo: string | null;
   proformaInvoiceNo: string | null;
   
-
+  consignee: {
+    name: string | null;
+    address: string | null;
+    contact: string | null;
+    phone: string | null;
+    mobile: string | null;
+    email: string | null;
+  } | null;
+  //notihin
   exporter: {
     name: string | null;
     address: string | null;
