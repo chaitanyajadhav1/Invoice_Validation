@@ -1,140 +1,69 @@
-// /api/worker/user/[userId]/invoices/route.ts
+// src/app/api/worker/user/[userId]/invoices/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { redis } from '@/lib/config';
+import { createClient } from '@supabase/supabase-js';
 
-// Helper function to get invoices for a thread
-async function getThreadInvoices(threadId: string) {
-  const invoiceIds = await redis.smembers(`thread:${threadId}:invoices`);
-  
-  if (!invoiceIds || invoiceIds.length === 0) {
-    return [];
-  }
-  
-  const invoices = await Promise.all(
-    invoiceIds.map(async (invoiceId) => {
-      try {
-        // First check the type of the key
-        const keyType = await redis.type(`invoice:${invoiceId}`);
-        
-        let data;
-        if (keyType === 'hash') {
-          // Use hgetall for hash type
-          data = await redis.hgetall(`invoice:${invoiceId}`);
-        } else if (keyType === 'string') {
-          // Use get for string type and parse JSON
-          const stringData = await redis.get(`invoice:${invoiceId}`);
-          data = stringData ? JSON.parse(stringData as string) : null;
-        } else {
-          console.warn(`[Worker Invoices] Unknown key type for invoice:${invoiceId}: ${keyType}`);
-          return null;
-        }
-        
-        return data;
-      } catch (error) {
-        console.error(`[Worker Invoices] Error fetching invoice ${invoiceId}:`, error);
-        return null;
-      }
-    })
-  );
-  
-  return invoices.filter((inv) => inv !== null);
-}
-
-// Helper function to get all invoices for a user
-async function getUserInvoices(userId: string) {
-  const invoiceIds = await redis.smembers(`user:${userId}:invoices`);
-  
-  if (!invoiceIds || invoiceIds.length === 0) {
-    return [];
-  }
-  
-  const invoices = await Promise.all(
-    invoiceIds.map(async (invoiceId) => {
-      try {
-        // First check the type of the key
-        const keyType = await redis.type(`invoice:${invoiceId}`);
-        
-        let data;
-        if (keyType === 'hash') {
-          // Use hgetall for hash type
-          data = await redis.hgetall(`invoice:${invoiceId}`);
-        } else if (keyType === 'string') {
-          // Use get for string type and parse JSON
-          const stringData = await redis.get(`invoice:${invoiceId}`);
-          data = stringData ? JSON.parse(stringData as string) : null;
-        } else {
-          console.warn(`[Worker Invoices] Unknown key type for invoice:${invoiceId}: ${keyType}`);
-          return null;
-        }
-        
-        return data;
-      } catch (error) {
-        console.error(`[Worker Invoices] Error fetching invoice ${invoiceId}:`, error);
-        return null;
-      }
-    })
-  );
-  
-  return invoices.filter((inv) => inv !== null);
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    // Extract userId from route params
     const { userId } = await params;
     
-    // Extract threadId from query params (optional)
-    const { searchParams } = new URL(request.url);
-    const threadId = searchParams.get('threadId');
-    
-    console.log(`[Worker Invoices] Fetching invoices for user: ${userId}, thread: ${threadId || 'all'}`);
-    
-    let invoices;
-    
-    // If threadId is provided, get invoices for that specific thread
-    if (threadId) {
-      invoices = await getThreadInvoices(threadId);
-      console.log(`[Worker Invoices] Found ${invoices.length} invoices for thread: ${threadId}`);
-    } else {
-      // Otherwise get all invoices for the user
-      invoices = await getUserInvoices(userId);
-      console.log(`[Worker Invoices] Found ${invoices.length} invoices for user: ${userId}`);
+    console.log(`[User Invoices API] Fetching invoices for user: ${userId}`);
+
+    // Query Supabase for all user's invoices
+    const { data: invoices, error } = await supabase
+      .from('invoices')
+      .select('invoice_id, filename, document_type, invoice_no, invoice_date, processed_at, status')
+      .eq('user_id', userId)
+      .order('processed_at', { ascending: false });
+
+    if (error) {
+      console.error('[User Invoices API] Supabase error:', error);
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Failed to fetch invoices',
+          invoices: []
+        },
+        { status: 500 }
+      );
     }
-    
-    const safeInvoices = invoices.filter((inv): inv is Record<string, any> => !!inv);
+
+    console.log(`[User Invoices API] Found ${invoices?.length || 0} invoices`);
+
+    // Format response to match frontend expectations
+    const formattedInvoices = (invoices || []).map(invoice => ({
+      invoiceId: invoice.invoice_id,
+      filename: invoice.filename,
+      documentType: invoice.document_type || 'commercial_invoice',
+      invoiceNumber: invoice.invoice_no,
+      totalAmount: null, // Can be calculated from items if needed
+      currency: 'USD', // Default or extract from invoice data
+      processedAt: invoice.processed_at,
+      readyForBooking: invoice.status === 'valid' // True if status is valid
+    }));
 
     return NextResponse.json({
       success: true,
-      userId,
-      threadId: threadId || null,
-      invoices: safeInvoices.map((inv) => ({
-        invoiceId: inv.invoice_id,
-        filename: inv.filename,
-        uploadedAt: inv.uploaded_at,
-        processedAt: inv.processed_at,
-        status: inv.status,
-        threadId: inv.thread_id,
-        invoiceNo: inv.invoice_no,
-        invoiceDate: inv.invoice_date,
-        consigneeName: inv.consignee_name,
-        exporterName: inv.exporter_name,
-        isValid: inv.is_valid,
-        completeness: inv.completeness,
-        itemCount: inv.item_count,
-        ...inv
-      }))
+      count: formattedInvoices.length,
+      invoices: formattedInvoices
     });
 
   } catch (error: any) {
-    console.error('[Worker Invoices] Error fetching invoices:', error);
+    console.error('[User Invoices API] Error:', error);
     return NextResponse.json(
       { 
-        success: false, 
-        error: error.message 
-      }, 
+        success: false,
+        error: 'Failed to fetch invoices',
+        details: error.message,
+        invoices: []
+      },
       { status: 500 }
     );
   }

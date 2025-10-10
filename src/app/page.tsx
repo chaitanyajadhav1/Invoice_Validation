@@ -383,13 +383,19 @@ export default function FreightChatPro() {
     const savedUser = sessionStorage.getItem('freightchat_user');
     
     if (savedToken && savedUser) {
-      setToken(savedToken);
-      const userData = JSON.parse(savedUser);
-      setUser(userData);
-      fetchUserProfile(savedToken);
-      fetchUserDocuments(savedToken);
-      fetchUserShipments(savedToken);
-      fetchRedisData(userData.userId);
+      try {
+        const userData = JSON.parse(savedUser);
+        setToken(savedToken);
+        setUser(userData);
+        fetchUserProfile(savedToken);
+        fetchUserDocuments(savedToken);
+        fetchUserShipments(savedToken);
+        fetchRedisData(userData.userId);
+      } catch (error) {
+        console.error('Error loading saved session:', error);
+        sessionStorage.removeItem('freightchat_token');
+        sessionStorage.removeItem('freightchat_user');
+      }
     }
   }, [mounted]);
 
@@ -401,7 +407,7 @@ export default function FreightChatPro() {
 
     setInvoiceLookupLoading(true);
     try {
-      const response = await fetch(`http://localhost:3000/api/invoice/lookup?invoiceNo=${encodeURIComponent(invoiceLookupNumber)}`);
+      const response = await fetch(`${API_BASE}/invoice/lookup?invoiceNo=${encodeURIComponent(invoiceLookupNumber)}`);
       const data: InvoiceLookupData = await response.json();
 
       if (data.success) {
@@ -434,7 +440,7 @@ export default function FreightChatPro() {
         setRedisDocuments(documentsData.documents || []);
       } 
     } catch (error) {
-      console.error('Failed to fetch  data:', error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setRedisLoading(false);
     }
@@ -443,6 +449,7 @@ export default function FreightChatPro() {
   const fetchInvoiceDetails = async (invoiceId: string): Promise<void> => {
     try {
       const response = await fetch(`${WORKER_BASE}/invoice/${invoiceId}`);
+      
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.invoice) {
@@ -477,7 +484,7 @@ export default function FreightChatPro() {
   const refreshRedisData = async (): Promise<void> => {
     if (user) {
       await fetchRedisData(user.userId);
-      setSnackbar({ open: true, message: ' data refreshed', severity: 'success' });
+      setSnackbar({ open: true, message: 'Data refreshed', severity: 'success' });
     }
   };
 
@@ -496,19 +503,23 @@ export default function FreightChatPro() {
       if (response.ok) {
         setToken(data.token);
         setUser(data.user);
+        
         sessionStorage.setItem('freightchat_token', data.token);
         sessionStorage.setItem('freightchat_user', JSON.stringify(data.user));
+        
         setAuthDialogOpen(false);
+        
         setSnackbar({ open: true, message: `Welcome ${data.user.name}!`, severity: 'success' });
         
-        fetchUserProfile(data.token);
-        fetchUserDocuments(data.token);
-        fetchUserShipments(data.token);
-        fetchRedisData(data.user.userId);
+        await fetchUserProfile(data.token);
+        await fetchUserDocuments(data.token);
+        await fetchUserShipments(data.token);
+        await fetchRedisData(data.user.userId);
       } else {
-        setSnackbar({ open: true, message: data.error, severity: 'error' });
+        setSnackbar({ open: true, message: data.error || 'Authentication failed', severity: 'error' });
       }
     } catch (error) {
+      console.error('Authentication error:', error);
       setSnackbar({ open: true, message: 'Authentication failed', severity: 'error' });
     } finally {
       setLoading(false);
@@ -566,13 +577,27 @@ export default function FreightChatPro() {
     setAgentMessages([]);
     setRedisInvoices([]);
     setRedisDocuments([]);
+    setDocuments([]);
+    setUserShipments([]);
+    setShipmentData({});
+    setQuote(null);
+    setSessionInvoices([]);
+    
     sessionStorage.removeItem('freightchat_token');
     sessionStorage.removeItem('freightchat_user');
+    
+    setActiveTab(3);
+    
     setSnackbar({ open: true, message: 'Logged out successfully', severity: 'success' });
   };
 
   const startAgent = async (): Promise<void> => {
-    if (!token) {
+    if (!token || !user) {
+      setSnackbar({ 
+        open: true, 
+        message: 'Please login first to start the shipping agent', 
+        severity: 'warning' 
+      });
       setAuthDialogOpen(true);
       return;
     }
@@ -602,6 +627,7 @@ export default function FreightChatPro() {
         setSnackbar({ open: true, message: data.error || 'Failed to start agent', severity: 'error' });
       }
     } catch (error) {
+      console.error('Failed to start agent:', error);
       setSnackbar({ open: true, message: 'Failed to start agent', severity: 'error' });
     } finally {
       setAgentLoading(false);
@@ -884,7 +910,7 @@ export default function FreightChatPro() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <StorageIcon color="primary" />
             <Typography variant="h6">
-              Supabase Data Storage
+              Redis Data Storage
             </Typography>
           </Box>
           <Button
@@ -1159,7 +1185,7 @@ export default function FreightChatPro() {
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
               <Badge badgeContent={redisInvoices.length} color="primary">
-                Invoices in Redis
+                Invoices in Database
               </Badge>
             </Typography>
             
@@ -1199,13 +1225,13 @@ export default function FreightChatPro() {
                               sx={{ mb: 1 }}
                             />
                           )}
-                          <IconButton
+                          {/* <IconButton
                             size="small"
                             onClick={() => fetchInvoiceDetails(invoice.invoiceId)}
                             color="primary"
                           >
                             <VisibilityIcon />
-                          </IconButton>
+                          </IconButton> */}
                         </Box>
                       </Box>
                     </CardContent>
@@ -1224,7 +1250,7 @@ export default function FreightChatPro() {
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>
               <Badge badgeContent={redisDocuments.length} color="primary">
-                Documents in Redis
+                Documents in Supabase
               </Badge>
             </Typography>
             
@@ -1259,7 +1285,7 @@ export default function FreightChatPro() {
               </List>
             ) : (
               <Alert severity="info">
-                No documents in Redis yet. Upload a PDF to see it here.
+                No documents  yet. Upload a PDF to see it here.
               </Alert>
             )}
           </Paper>
@@ -1805,7 +1831,7 @@ export default function FreightChatPro() {
               { icon: <ChatIcon />, label: 'Start Shipping Agent', action: () => { setActiveTab(0); if (!agentThreadId) startAgent(); } },
               { icon: <UploadIcon />, label: 'Upload Document', action: () => fileInputRef.current?.click() },
               { icon: <TrackIcon />, label: 'Track Shipment', action: () => setActiveTab(2) },
-              { icon: <StorageIcon />, label: 'View  Data', action: () => setActiveTab(4) }
+              { icon: <StorageIcon />, label: 'View Data', action: () => setActiveTab(4) }
             ].map((action, idx) => (
               <Box key={idx} sx={{ flex: '1 1 200px' }}>
                 <Button variant={idx === 0 ? 'contained' : 'outlined'} fullWidth startIcon={action.icon} onClick={action.action} sx={{ height: '60px' }}>
@@ -1870,7 +1896,7 @@ export default function FreightChatPro() {
                 <Tab icon={<DocumentIcon />} label="Documents" />
                 <Tab icon={<TrackIcon />} label="Tracking" />
                 <Tab icon={<DashboardIcon />} label="Dashboard" />
-                <Tab icon={<Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary"><StorageIcon /></Badge>} label=" Data" />
+                <Tab icon={<Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary"><StorageIcon /></Badge>} label="Data" />
               </Tabs>
             </Paper>
 
@@ -1894,25 +1920,70 @@ export default function FreightChatPro() {
         )}
       </Container>
 
-      <Dialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)}>
+      <Dialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{isLogin ? 'Login to FreightChat Pro' : 'Create Account'}</DialogTitle>
         <DialogContent>
-          <TextField autoFocus margin="dense" label="User ID" type="text" fullWidth variant="outlined" value={authData.userId} onChange={handleAuthDataChange('userId')} sx={{ mb: 2 }} />
-          {!isLogin && (
-            <>
-              <TextField margin="dense" label="Full Name" type="text" fullWidth variant="outlined" value={authData.name} onChange={handleAuthDataChange('name')} sx={{ mb: 2 }} />
-              <TextField margin="dense" label="Email" type="email" fullWidth variant="outlined" value={authData.email} onChange={handleAuthDataChange('email')} sx={{ mb: 2 }} />
-            </>
-          )}
-          <Typography variant="body2" color="text.secondary">
-            {isLogin ? "Don't have an account? " : "Already have an account? "}
-            <Button size="small" onClick={() => setIsLogin(!isLogin)}>{isLogin ? 'Register' : 'Login'}</Button>
-          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <TextField 
+              autoFocus 
+              margin="dense" 
+              label="User ID" 
+              type="text" 
+              fullWidth 
+              variant="outlined" 
+              value={authData.userId} 
+              onChange={handleAuthDataChange('userId')} 
+              sx={{ mb: 2 }}
+              required
+            />
+            {!isLogin && (
+              <>
+                <TextField 
+                  margin="dense" 
+                  label="Full Name" 
+                  type="text" 
+                  fullWidth 
+                  variant="outlined" 
+                  value={authData.name} 
+                  onChange={handleAuthDataChange('name')} 
+                  sx={{ mb: 2 }}
+                  required
+                />
+                <TextField 
+                  margin="dense" 
+                  label="Email" 
+                  type="email" 
+                  fullWidth 
+                  variant="outlined" 
+                  value={authData.email} 
+                  onChange={handleAuthDataChange('email')} 
+                  sx={{ mb: 2 }}
+                  required
+                />
+              </>
+            )}
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+              {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <Button 
+                size="small" 
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setAuthData({ userId: '', name: '', email: '' });
+                }}
+              >
+                {isLogin ? 'Register' : 'Login'}
+              </Button>
+            </Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAuthDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleAuth} variant="contained" disabled={loading || !authData.userId.trim()}>
-            {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
+          <Button 
+            onClick={handleAuth} 
+            variant="contained" 
+            disabled={loading || !authData.userId.trim() || (!isLogin && (!authData.name.trim() || !authData.email.trim()))}
+          >
+            {loading ? <CircularProgress size={20} /> : (isLogin ? 'Login' : 'Register')}
           </Button>
         </DialogActions>
       </Dialog>
