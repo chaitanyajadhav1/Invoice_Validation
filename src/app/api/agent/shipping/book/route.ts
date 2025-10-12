@@ -43,7 +43,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user owns this conversation
-    if (state.userId !== userId) {
+    // Handle both string and object formats for state.userId
+    const stateUserId = typeof state.userId === 'string' 
+      ? state.userId 
+      : (state.userId as any)?.userId;
+    
+    if (stateUserId !== userId) {
       return NextResponse.json({ 
         error: 'Unauthorized' 
       }, { status: 403 });
