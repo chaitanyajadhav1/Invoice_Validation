@@ -22,11 +22,13 @@ export async function GET(request: NextRequest) {
       }, { status: 401 });
     }
 
-    const shipments = await getUserShipments(userId);
+    // Extract userId string from the userId object
+    const userIdString = typeof userId === 'string' ? userId : (userId as any).userId;
+    const shipments = await getUserShipments(userIdString);
     
     return NextResponse.json({
       total: shipments.length,
-      activeShipments: shipments.filter(s => !['delivered', 'returned'].includes(s.status)),
+      activeShipments: shipments.filter((s: any) => !['delivered', 'returned'].includes(s.status)),
       recentShipments: shipments.slice(0, 10)
     });
 
