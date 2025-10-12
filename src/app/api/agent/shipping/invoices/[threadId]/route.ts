@@ -33,7 +33,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       threadId: threadId,
-      invoices: invoices.map(inv => ({
+      invoices: invoices.map((inv: any) => ({
         invoiceId: inv.invoice_id,
         filename: inv.filename,
         uploadedAt: inv.uploaded_at,
