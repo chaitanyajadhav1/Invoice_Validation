@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Message query parameter is required' }, { status: 400 });
     }
 
-    const userDocs = await getUserDocuments(userId);
+    // Extract userId string from the userId object
+    const userIdString = typeof userId === 'string' ? userId : (userId as any).userId;
+    const userDocs = await getUserDocuments(userIdString);
     
     if (userDocs.length === 0) {
       return NextResponse.json({
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     let relevantDocs: Array<{ pageContent: string }> = [];
     if (strategy === 'user') {
-      const collectionName = `user_${userId}`;
+      const collectionName = `user_${userIdString}`;
       try {
         const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
           url: QDRANT_URL,
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
       message: `Based on your documents, here's what I found:\n\n${context}\n\nQuestion: ${userQuery}`,
       query: userQuery,
       docsFound: relevantDocs.length,
-      userId,
+      userId: userIdString,
       mode: 'document_chat'
     });
 
