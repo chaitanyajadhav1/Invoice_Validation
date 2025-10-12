@@ -2,8 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserToken } from '@/lib/auth';
 import { ShippingAgent } from '@/lib/agent';
+import { ResponseGenerator } from '@/lib/workflow';
 import { createConversationState } from '@/lib/database';
-import crypto from 'crypto';
 
 const agent = new ShippingAgent();
 
@@ -13,71 +13,102 @@ export async function POST(request: NextRequest) {
     const token = authHeader?.split(' ')[1];
     
     if (!token) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Authentication required',
         requiresAuth: true
       }, { status: 401 });
     }
     
-    const userId = await verifyUserToken(token);
-    if (!userId) {
-      return NextResponse.json({ 
+    const authResult = await verifyUserToken(token);
+    if (!authResult) {
+      return NextResponse.json({
         error: 'Invalid or expired token',
         requiresAuth: true
       }, { status: 401 });
     }
 
-    // Generate unique thread ID
-    const threadId = `thread_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+    // Extract userId and organizationId from auth result
+    const userId = typeof authResult === 'string' ? authResult : authResult.userId;
+    const organizationId = typeof authResult === 'string' ? 'default-org' : (authResult.organizationId || 'default-org');
+
+    // Generate a unique thread ID
+    const threadId = `thread_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     
-    console.log(`[Agent Start] Creating new conversation for user ${userId}, thread ${threadId}`);
+    console.log(`[Agent Start] Creating new conversation for user ${userId}, org ${organizationId}, thread ${threadId}`);
 
-    // Create initial conversation state
-    const initialState = {
-      threadId,
-      userId,
-      currentStep: 'greeting' as const,
-      shipmentData: {},
-      invoiceIds: [],
-      messages: [],
-      attempts: 0,
-      lastActivity: new Date().toISOString()
-    };
-
-    // Get greeting message from agent
-    const result = await agent.processMessage(threadId, userId, '');
-
-    // Save initial state to database
     try {
-      await createConversationState(result.state);
-      console.log(`[Agent Start] Conversation state created successfully`);
-    } catch (dbError) {
-      console.error('[Agent Start] Failed to save initial state:', dbError);
-      // Continue anyway - state will be created on first message if needed
-    }
+      // Create initial conversation state
+      const greeting = ResponseGenerator.greeting();
+      
+      const initialState = {
+        threadId,
+        userId,
+        organizationId,
+        currentStep: 'greeting' as const,
+        shipmentData: {},
+        invoiceIds: [],
+        messages: [{
+          role: 'assistant' as const,
+          content: greeting,
+          timestamp: new Date().toISOString()
+        }],
+        attempts: 0,
+        lastActivity: new Date().toISOString()
+      };
 
-    return NextResponse.json({
-      success: true,
-      threadId,
-      message: result.response,
-      currentPhase: result.state.currentStep,
-      completed: false,
-      architecture: 'Rule-Based State Machine',
-      features: {
-        invoiceUpload: true,
-        uploadEndpoint: '/api/agent/shipping/upload-invoice',
-        contextMemory: 'Supabase',
-        llmFree: true,
-        responseTime: '<100ms'
+      await createConversationState(initialState);
+
+      return NextResponse.json({
+        success: true,
+        threadId,
+        message: greeting,
+        currentPhase: 'greeting'
+      });
+    } catch (initError: any) {
+      // Handle duplicate thread gracefully
+      if (initError.code === '23505') {
+        console.log(`[Agent Start] Thread ${threadId} already exists, generating new one...`);
+        
+        // Generate a new unique thread ID with more entropy
+        const newThreadId = `thread_${Date.now()}_${Math.random().toString(36).substring(2, 15)}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        const greeting = ResponseGenerator.greeting();
+        
+        const initialState = {
+          threadId: newThreadId,
+          userId,
+          organizationId,
+          currentStep: 'greeting' as const,
+          shipmentData: {},
+          invoiceIds: [],
+          messages: [{
+            role: 'assistant' as const,
+            content: greeting,
+            timestamp: new Date().toISOString()
+          }],
+          attempts: 0,
+          lastActivity: new Date().toISOString()
+        };
+
+        await createConversationState(initialState);
+        
+        return NextResponse.json({
+          success: true,
+          threadId: newThreadId,
+          message: greeting,
+          currentPhase: 'greeting'
+        });
       }
-    });
+      
+      throw initError;
+    }
 
   } catch (error: any) {
     console.error('[Agent Start] Error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to start agent',
-      details: error.message 
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to start conversation',
+      details: error.message
     }, { status: 500 });
   }
 }

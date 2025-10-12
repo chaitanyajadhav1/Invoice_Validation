@@ -1,4 +1,4 @@
-// src/lib/agent.ts - UNIVERSAL INVOICE EXTRACTION SYSTEM (COMPLETE & FIXED)
+// src/lib/agent.ts - UNIVERSAL INVOICE EXTRACTION SYSTEM with Organization Support
 
 import { ConversationState, WorkflowStateMachine, ResponseGenerator } from './workflow';
 import { getConversationState, updateConversationState, createConversationState } from './database';
@@ -20,7 +20,7 @@ export interface CommercialInvoiceData {
     mobile: string | null;
     email: string | null;
   } | null;
-  //notihin
+  
   exporter: {
     name: string | null;
     address: string | null;
@@ -195,7 +195,6 @@ function extractExporter(invoiceText: string): {
     mobile: null as string | null
   };
 
-  // Name extraction
   const namePatterns = [
     /(?:EXPORTER|SELLER|SHIPPER):?\s*([^\n]+)/i,
   ];
@@ -209,7 +208,6 @@ function extractExporter(invoiceText: string): {
     }
   }
 
-  // Address extraction
   const exporterSection = extractSection(invoiceText, /(?:EXPORTER|SELLER):/i, ['PAN', 'GSTIN', 'CONSIGNEE', 'INVOICE NO']);
   if (exporterSection) {
     const lines = exporterSection.split(/\r?\n/).filter(l => l.trim().length > 0);
@@ -220,7 +218,6 @@ function extractExporter(invoiceText: string): {
     }
   }
 
-  // Tax identifiers
   const panMatch = invoiceText.match(/PAN\s+(?:No\.?|NO)?:?\s*([A-Z0-9]+)/i);
   if (panMatch) {
     result.pan = panMatch[1].trim();
@@ -239,7 +236,6 @@ function extractExporter(invoiceText: string): {
     console.log('[Extract] IEC:', result.iec);
   }
 
-  // Contact details
   const emailMatch = invoiceText.match(/(?:E-?mail|MAIL):?\s*([^\s,\n]+@[^\s,\n]+)/i);
   if (emailMatch) {
     result.email = emailMatch[1].trim();
@@ -279,14 +275,12 @@ function extractConsignee(invoiceText: string): {
     mobile: null as string | null
   };
 
-  // Name extraction
   const nameMatch = invoiceText.match(/(?:CONSIGNEE|BUYER):?\s*([^\n]+)/i);
   if (nameMatch && nameMatch[1]) {
     result.name = cleanText(nameMatch[1]);
     console.log('[Extract] Consignee Name:', result.name);
   }
 
-  // Address extraction
   const consigneeSection = extractSection(invoiceText, /CONSIGNEE:/i, ['BANK', 'OUR BANK', 'Country']);
   if (consigneeSection) {
     const lines = consigneeSection.split(/\r?\n/).filter(l => l.trim().length > 0);
@@ -337,7 +331,6 @@ function extractBankDetails(invoiceText: string): {
     ifscCode: null as string | null
   };
 
-  // Bank Name
   const bankNameMatch = invoiceText.match(/(?:OUR\s+BANK|BANK):?\s*([A-Z\s&.]+BANK(?:\s+(?:LTD|LIMITED))?\.?)/i);
   if (bankNameMatch && bankNameMatch[1]) {
     const bankName = cleanText(bankNameMatch[1]);
@@ -347,7 +340,6 @@ function extractBankDetails(invoiceText: string): {
     }
   }
 
-  // Account Number - ENHANCED for USD A/C- format
   const accountPatterns = [
     /(?:USD|EUR|GBP|INR)\s*A\/C[-:\s]*([0-9]{10,20})/i,
     /Account\s+(?:No\.?|Number):?\s*([0-9]{10,20})/i,
@@ -367,7 +359,6 @@ function extractBankDetails(invoiceText: string): {
     }
   }
 
-  // SWIFT Code
   const swiftMatch = invoiceText.match(/SWIFT\s+CODE\s+([A-Z0-9]{8,11})/i);
   if (swiftMatch && swiftMatch[1]) {
     const swift = swiftMatch[1].trim();
@@ -377,7 +368,6 @@ function extractBankDetails(invoiceText: string): {
     }
   }
 
-  // IFSC Code
   const ifscMatch = invoiceText.match(/IFSC\s+CODE\s+([A-Z]{4}0[A-Z0-9]{6})/i);
   if (ifscMatch && ifscMatch[1]) {
     result.ifscCode = ifscMatch[1].trim().toUpperCase();
@@ -464,7 +454,6 @@ function extractItems(invoiceText: string): Array<{
     totalPrice: number;
   }> = [];
 
-  // Simple extraction - you can enhance this based on your needs
   console.log('[Extract] Items found:', items.length);
   return items;
 }
@@ -527,10 +516,10 @@ function detectCurrency(invoiceText: string): string {
 // MAIN EXTRACTION FUNCTION
 // ============================================
 export function extractAndValidateInvoice(invoiceText: string): InvoiceValidationResult {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('[Extraction] Starting universal invoice extraction...');
+  console.log('═══════════════════════════════════════');
+  console.log('[Extraction] Starting invoice extraction');
   console.log('[Extraction] Text length:', invoiceText.length);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('═══════════════════════════════════════');
   
   const extractedData: CommercialInvoiceData = {
     invoiceNo: null,
@@ -607,8 +596,8 @@ export function extractAndValidateInvoice(invoiceText: string): InvoiceValidatio
 
     extractedData.signature = checkSignature(invoiceText);
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('[Validation] Checking required fields...');
+    console.log('═══════════════════════════════════════');
+    console.log('[Validation] Checking required fields');
     
     if (!extractedData.invoiceNo) errors.push('Invoice Number is missing');
     if (!extractedData.date) errors.push('Invoice Date is missing');
@@ -649,7 +638,7 @@ export function extractAndValidateInvoice(invoiceText: string): InvoiceValidatio
     console.log('[Validation] Completeness:', completeness + '%');
     console.log('[Validation] Errors:', errors.length > 0 ? errors : 'None');
     console.log('[Validation] Warnings:', warnings.length > 0 ? warnings : 'None');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('═══════════════════════════════════════');
 
     return {
       isValid: errors.length === 0,
@@ -677,31 +666,68 @@ export function extractAndValidateInvoice(invoiceText: string): InvoiceValidatio
 // SHIPPING AGENT CLASS
 // ============================================
 export class ShippingAgent {
-  async processMessage(threadId: string, userId: string, userMessage: string): Promise<{
-    response: string; state: ConversationState; shouldGenerateQuote: boolean;
+  async processMessage(
+    threadId: string,
+    userId: string,
+    organizationId: string,
+    userMessage: string
+  ): Promise<{
+    response: string;
+    state: ConversationState;
+    shouldGenerateQuote: boolean;
   }> {
     let state = await getConversationState(threadId);
+    
     if (!state) {
-      state = { threadId, userId, currentStep: 'greeting', shipmentData: {}, invoiceIds: [], messages: [], attempts: 0, lastActivity: new Date().toISOString() };
+      state = {
+        threadId,
+        userId,
+        organizationId,
+        currentStep: 'greeting',
+        shipmentData: {},
+        invoiceIds: [],
+        messages: [],
+        attempts: 0,
+        lastActivity: new Date().toISOString()
+      };
       const greeting = ResponseGenerator.greeting();
       state.messages.push({ role: 'assistant', content: greeting, timestamp: new Date().toISOString() });
       await createConversationState(state);
       return { response: greeting, state, shouldGenerateQuote: false };
     }
+    
     state.messages.push({ role: 'user', content: userMessage, timestamp: new Date().toISOString() });
     const { nextState, response } = WorkflowStateMachine.processUserMessage(state, userMessage);
     const shouldGenerateQuote = response === 'GENERATE_QUOTE';
-    let finalResponse = shouldGenerateQuote ? '🔄 Generating shipping quotes...' : response;
+    let finalResponse = shouldGenerateQuote ? 'Generating shipping quotes...' : response;
     nextState.messages.push({ role: 'assistant', content: finalResponse, timestamp: new Date().toISOString() });
     await updateConversationState(nextState);
     return { response: finalResponse, state: nextState, shouldGenerateQuote };
   }
 
-  async handleInvoiceUpload(threadId: string, userId: string, invoiceValidation: InvoiceValidationResult, invoiceId: string): Promise<{ response: string; state: ConversationState; }> {
+  async handleInvoiceUpload(
+    threadId: string,
+    userId: string,
+    organizationId: string,
+    invoiceValidation: InvoiceValidationResult,
+    invoiceId: string
+  ): Promise<{ response: string; state: ConversationState }> {
     let state = await getConversationState(threadId);
+    
     if (!state) {
-      state = { threadId, userId, currentStep: 'greeting', shipmentData: {}, invoiceIds: [], messages: [], attempts: 0, lastActivity: new Date().toISOString() };
+      state = {
+        threadId,
+        userId,
+        organizationId,
+        currentStep: 'greeting',
+        shipmentData: {},
+        invoiceIds: [],
+        messages: [],
+        attempts: 0,
+        lastActivity: new Date().toISOString()
+      };
     }
+    
     state.invoiceIds.push(invoiceId);
     const { extractedData } = invoiceValidation;
     
@@ -796,32 +822,32 @@ function getServiceMultiplier(serviceLevel: string): { multiplier: number; days:
 export function formatQuoteResponse(quote: any, shipmentData: ConversationState['shipmentData'], invoiceCount: number = 0): string {
   const { quotes } = quote;
   
-  let response = '📦 **Shipping Quote Generated**\n\n';
-  response += '**Shipment Details:**\n';
-  response += `• Origin: ${shipmentData.origin || 'Not specified'}\n`;
-  response += `• Destination: ${shipmentData.destination || 'Not specified'}\n`;
-  response += `• Weight: ${shipmentData.weight || 'Not specified'}\n`;
-  response += `• Cargo: ${shipmentData.cargo || 'Not specified'}\n`;
+  let response = 'Shipping Quote Generated\n\n';
+  response += 'Shipment Details:\n';
+  response += `Origin: ${shipmentData.origin || 'Not specified'}\n`;
+  response += `Destination: ${shipmentData.destination || 'Not specified'}\n`;
+  response += `Weight: ${shipmentData.weight || 'Not specified'}\n`;
+  response += `Cargo: ${shipmentData.cargo || 'Not specified'}\n`;
   
   if (invoiceCount > 0) {
-    response += `• Invoices: ${invoiceCount} uploaded\n`;
+    response += `Invoices: ${invoiceCount} uploaded\n`;
   }
   
-  response += '\n**Available Carriers:**\n\n';
+  response += '\nAvailable Carriers:\n\n';
   
   quotes.forEach((q: any, index: number) => {
-    response += `**${index + 1}. ${q.name}** (${q.service})\n`;
-    response += `• Rate: ${q.rate} ${q.currency}\n`;
-    response += `• Transit Time: ${q.transitTime}\n`;
-    response += `• Reputation: ${q.reputation}/10\n`;
-    response += `• Reliability: ${q.reliability}\n`;
-    response += `• Carrier ID: ${q.carrierId}\n\n`;
+    response += `${index + 1}. ${q.name} (${q.service})\n`;
+    response += `Rate: ${q.rate} ${q.currency}\n`;
+    response += `Transit Time: ${q.transitTime}\n`;
+    response += `Reputation: ${q.reputation}/10\n`;
+    response += `Reliability: ${q.reliability}\n`;
+    response += `Carrier ID: ${q.carrierId}\n\n`;
   });
   
-  response += '💡 **Next Steps:**\n';
-  response += '• Review the quotes above\n';
-  response += '• Select a carrier by saying "I choose [carrier name]"\n';
-  response += '• Or ask me any questions about the quotes\n';
+  response += 'Next Steps:\n';
+  response += 'Review the quotes above\n';
+  response += 'Select a carrier by saying "I choose [carrier name]"\n';
+  response += 'Or ask any questions about the quotes\n';
   
   return response;
 }

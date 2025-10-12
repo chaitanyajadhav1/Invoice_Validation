@@ -18,13 +18,17 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
     
-    const userId = await verifyUserToken(token);
-    if (!userId) {
+    const authResult = await verifyUserToken(token);
+    if (!authResult) {
       return NextResponse.json({
         error: 'Invalid or expired token',
         requiresAuth: true
       }, { status: 401 });
     }
+
+    // Extract userId and organizationId from auth result
+    const userId = typeof authResult === 'string' ? authResult : authResult.userId;
+    const organizationId = typeof authResult === 'string' ? 'default-org' : (authResult.organizationId || 'default-org');
 
     const { threadId, message } = await request.json();
     
@@ -36,8 +40,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Agent] Processing message for thread ${threadId}:`, message.substring(0, 50));
 
-    // Process message through the agent
-    const result = await agent.processMessage(threadId, userId, message);
+    // Process message through the agent with organizationId
+    const result = await agent.processMessage(threadId, userId, organizationId, message);
 
     let finalResponse = result.response;
     let quote = null;
@@ -57,8 +61,8 @@ export async function POST(request: NextRequest) {
           result.state.invoiceIds.length
         );
 
-        // Save quote to database
-        await saveShippingQuote(threadId, quote, userId);
+        // Save quote to database with organizationId
+        await saveShippingQuote(threadId, quote, userId, organizationId);
         
         completed = true;
         console.log('[Agent] Quote generated and saved successfully');

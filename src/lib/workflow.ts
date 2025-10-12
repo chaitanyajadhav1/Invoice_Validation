@@ -1,8 +1,9 @@
-// src/lib/workflow.ts - Rule-based state machine (NO LLM)
+// src/lib/workflow.ts - Rule-based state machine with organization support
 
 export interface ConversationState {
   threadId: string;
   userId: string;
+  organizationId: string; // ADDED: Organization support
   currentStep: WorkflowStep;
   shipmentData: {
     origin?: string;
@@ -232,8 +233,8 @@ export class ResponseGenerator {
     return `Hello! I'm your shipping assistant. I'll help you get freight quotes for your shipment.
 
 To get started, please tell me:
-📍 Where are you shipping FROM?
-📍 Where are you shipping TO?
+- Where are you shipping FROM?
+- Where are you shipping TO?
 
 Example: "From Mumbai to New York" or "Mumbai to Dubai"
 
@@ -249,9 +250,9 @@ Example: Mumbai, India or just "Mumbai"`;
       return `I couldn't find a valid origin location. Please provide the city/country you're shipping FROM.
 
 Examples:
-• Mumbai
-• Delhi, India  
-• New York, USA`;
+- Mumbai
+- Delhi, India  
+- New York, USA`;
     }
   }
 
@@ -266,9 +267,9 @@ Now, where is the destination? (City or Country)`;
 Current origin: ${origin}
 
 Examples:
-• New York
-• Dubai, UAE
-• London, UK`;
+- New York
+- Dubai, UAE
+- London, UK`;
     }
   }
 
@@ -277,10 +278,10 @@ Examples:
       return `What are you shipping? Please describe your cargo.
 
 Examples:
-• Electronics and components
-• Textile samples
-• Machinery parts
-• Documents`;
+- Electronics and components
+- Textile samples
+- Machinery parts
+- Documents`;
     } else {
       return `Please describe what you're shipping. This helps us provide accurate quotes.
 
@@ -293,24 +294,24 @@ Examples: "Electronics", "Garments", "Machinery parts"`;
       return `What's the approximate weight of your shipment?
 
 You can say:
-• "50 kg"
-• "100 kilos"
-• "2 tons"`;
+- "50 kg"
+- "100 kilos"
+- "2 tons"`;
     } else {
       return `I need the weight to calculate shipping costs. Please provide:
 
-• Weight in kg (e.g., "50 kg")
-• Weight in lbs (e.g., "110 lbs")  
-• Or approximate weight (e.g., "around 100 kg")`;
+- Weight in kg (e.g., "50 kg")
+- Weight in lbs (e.g., "110 lbs")  
+- Or approximate weight (e.g., "around 100 kg")`;
     }
   }
 
   static askServiceLevel(): string {
     return `What service level do you prefer?
 
-🚀 Express - Fastest delivery (1-3 days)
-📦 Standard - Balanced speed & cost (4-7 days)
-💰 Economy - Most affordable (8-14 days)
+- Express - Fastest delivery (1-3 days)
+- Standard - Balanced speed & cost (4-7 days)
+- Economy - Most affordable (8-14 days)
 
 Type: Express, Standard, or Economy
 (or just say "standard" for default)`;
@@ -319,11 +320,11 @@ Type: Express, Standard, or Economy
   static confirmDetails(data: ConversationState['shipmentData']): string {
     return `Let me confirm your shipment details:
 
-📍 From: ${data.origin || 'Not specified'}
-📍 To: ${data.destination || 'Not specified'}
-📦 Cargo: ${data.cargo || 'Not specified'}
-⚖️ Weight: ${data.weight || 'Not specified'}
-🚚 Service: ${data.serviceLevel || 'Standard'}
+From: ${data.origin || 'Not specified'}
+To: ${data.destination || 'Not specified'}
+Cargo: ${data.cargo || 'Not specified'}
+Weight: ${data.weight || 'Not specified'}
+Service: ${data.serviceLevel || 'Standard'}
 
 Should I generate quotes for this shipment? (Type "yes" to proceed)`;
   }
@@ -333,18 +334,18 @@ Should I generate quotes for this shipment? (Type "yes" to proceed)`;
   }
 
   static invoiceUploaded(validation: any): string {
-    let response = `📄 Invoice Validation Complete!\n\n`;
-    response += `✅ Completeness: ${validation.completeness}%\n\n`;
+    let response = `Invoice Validation Complete!\n\n`;
+    response += `Completeness: ${validation.completeness}%\n\n`;
 
     if (validation.isValid) {
       response += `Status: Valid - All required fields present\n\n`;
       response += `I've extracted shipment details from your invoice. I'll use this to generate quotes.`;
     } else {
-      response += `⚠️ Status: Some required fields are missing\n\n`;
+      response += `Status: Some required fields are missing\n\n`;
       if (validation.errors && validation.errors.length > 0) {
         response += `Issues found:\n`;
         validation.errors.forEach((err: string) => {
-          response += `• ${err}\n`;
+          response += `- ${err}\n`;
         });
       }
       response += `\nLet's continue with manual entry.`;
@@ -504,4 +505,27 @@ export class WorkflowStateMachine {
 
     return { nextState, response };
   }
+}
+
+// Helper function to create initial state
+export function createInitialConversationState(
+  threadId: string,
+  userId: string,
+  organizationId: string
+): ConversationState {
+  return {
+    threadId,
+    userId,
+    organizationId,
+    currentStep: 'greeting',
+    shipmentData: {},
+    invoiceIds: [],
+    messages: [{
+      role: 'system',
+      content: 'Conversation started',
+      timestamp: new Date().toISOString()
+    }],
+    attempts: 0,
+    lastActivity: new Date().toISOString()
+  };
 }
