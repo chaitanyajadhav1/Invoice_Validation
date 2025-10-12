@@ -1608,7 +1608,7 @@ export default function FreightChatPro() {
           <List>
             {[
               { icon: <ChatIcon />, label: 'AI Shipping Agent', idx: 0 },
-              // { icon: <DocumentIcon />, label: 'Documents', idx: 1 },
+              { icon: <DocumentIcon />, label: 'Documents', idx: 1 },
               { icon: <TrackIcon />, label: 'Tracking', idx: 2 },
               { icon: <DashboardIcon />, label: 'Dashboard', idx: 3 },
               { icon: <StorageIcon />, label: 'Data', idx: 4, badge: redisInvoices.length + redisDocuments.length }
@@ -1629,7 +1629,7 @@ export default function FreightChatPro() {
             <Paper sx={{ mb: 2 }}>
               <Tabs value={activeTab} onChange={handleTabChange} variant="fullWidth">
                 <Tab icon={<ChatIcon />} label="AI Agent" />
-                {/* <Tab icon={<DocumentIcon />} label="Documents" /> */}
+                <Tab icon={<DocumentIcon />} label="Documents" />
                 <Tab icon={<TrackIcon />} label="Tracking" />
                 <Tab icon={<DashboardIcon />} label="Dashboard" />
                 <Tab icon={<Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary"><StorageIcon /></Badge>} label="Data" />
