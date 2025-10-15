@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
         currentStep: 'greeting' as const,
         shipmentData: {},
         invoiceIds: [],
+        documentIds: [],
         messages: [{
           role: 'assistant' as const,
           content: greeting,
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest) {
           currentStep: 'greeting' as const,
           shipmentData: {},
           invoiceIds: [],
+          documentIds: [],
           messages: [{
             role: 'assistant' as const,
             content: greeting,

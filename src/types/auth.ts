@@ -220,3 +220,4 @@ export const hasPermission = (
   
   return (roleHierarchy[userRole] || 0) >= (roleHierarchy[requiredRole] || 0);
 };
+

@@ -17,13 +17,23 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
     
-    const userId = await verifyUserToken(token);
-    if (!userId) {
+    // Verify token and get user info
+    const authResult = await verifyUserToken(token);
+    if (!authResult) {
       return NextResponse.json({ 
         error: 'Invalid or expired token',
         requiresAuth: true
       }, { status: 401 });
     }
+
+    // Extract userId - handle both string and object returns
+    const userId = typeof authResult === 'string' 
+      ? authResult 
+      : authResult.userId;
+    
+    const organizationId = typeof authResult === 'object' && 'organizationId' in authResult
+      ? authResult.organizationId
+      : undefined;
 
     const { threadId, carrierId, serviceLevel } = await request.json();
     
@@ -42,21 +52,45 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // Verify user owns this conversation
-    // Handle both string and object formats for state.userId
-    const stateUserId = typeof state.userId === 'string' 
-      ? state.userId 
-      : (state.userId as any)?.userId;
+    // User verification - ensure both are strings
+    const stateUserId = String(state.userId);
+    const tokenUserId = String(userId);
     
-    if (stateUserId !== userId) {
+    console.log('[Booking] User verification:', {
+      tokenUserId,
+      stateUserId,
+      match: stateUserId === tokenUserId
+    });
+    
+    if (stateUserId !== tokenUserId) {
+      console.error('[Booking] User mismatch:', {
+        expected: tokenUserId,
+        found: stateUserId
+      });
       return NextResponse.json({ 
-        error: 'Unauthorized' 
+        error: 'Unauthorized - User mismatch',
+        debug: {
+          tokenUserId,
+          stateUserId
+        }
+      }, { status: 403 });
+    }
+
+    // Organization verification (if applicable)
+    if (organizationId && state.organizationId && 
+        String(state.organizationId) !== String(organizationId)) {
+      console.error('[Booking] Organization mismatch:', {
+        expected: organizationId,
+        found: state.organizationId
+      });
+      return NextResponse.json({ 
+        error: 'Unauthorized - Organization mismatch'
       }, { status: 403 });
     }
 
     // Generate booking details
-    const bookingId = `BK${Date.now()}`;
-    const trackingNumber = `FCP${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+    const bookingId = `BK-${Date.now()}`;
+    const trackingNumber = `FCP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     const estimatedDelivery = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     console.log(`[Booking] Creating shipment tracking for ${trackingNumber}`);
@@ -65,7 +99,8 @@ export async function POST(request: NextRequest) {
     await createShipmentTracking({
       trackingNumber,
       bookingId,
-      userId: userId,
+      userId: tokenUserId,
+      organizationId: state.organizationId || organizationId,
       sessionId: threadId,
       carrierId,
       serviceLevel: serviceLevel || state.shipmentData?.serviceLevel || 'Standard',
@@ -81,21 +116,51 @@ export async function POST(request: NextRequest) {
       
       for (const invoiceId of state.invoiceIds) {
         try {
-          await supabase
+          const { error: updateError } = await supabase
             .from('invoices')
-            .update({ booking_id: bookingId })
-            .eq('invoice_id', invoiceId);
-          linkedInvoiceCount++;
+            .update({ 
+              booking_id: bookingId,
+              status: 'linked_to_booking'
+            })
+            .eq('invoice_id', invoiceId)
+            .eq('user_id', tokenUserId); // Extra security check
+          
+          if (updateError) {
+            console.error(`[Booking] Failed to link invoice ${invoiceId}:`, updateError);
+          } else {
+            linkedInvoiceCount++;
+          }
         } catch (invoiceError) {
-          console.error(`[Booking] Failed to link invoice ${invoiceId}:`, invoiceError);
-          // Continue with other invoices
+          console.error(`[Booking] Exception linking invoice ${invoiceId}:`, invoiceError);
         }
       }
+    }
+
+    // Update conversation state to mark as booked
+    try {
+      await supabase
+        .from('conversation_states')
+        .update({
+          shipment_data: {
+            ...state.shipmentData,
+            bookingId,
+            trackingNumber,
+            bookedAt: new Date().toISOString()
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('thread_id', threadId)
+        .eq('user_id', tokenUserId); // Extra security check
+    } catch (updateError) {
+      console.error('[Booking] Failed to update conversation state:', updateError);
+      // Don't fail the booking if state update fails
     }
 
     console.log(`[Booking] Shipment booked successfully:`, {
       bookingId,
       trackingNumber,
+      userId: tokenUserId,
+      organizationId: state.organizationId || organizationId,
       linkedInvoices: linkedInvoiceCount
     });
 
@@ -106,13 +171,13 @@ export async function POST(request: NextRequest) {
       trackingNumber,
       carrierId,
       serviceLevel: serviceLevel || state.shipmentData?.serviceLevel || 'Standard',
-      origin: state.shipmentData?.origin,
-      destination: state.shipmentData?.destination,
+      origin: state.shipmentData?.origin || 'Not specified',
+      destination: state.shipmentData?.destination || 'Not specified',
       estimatedDelivery: estimatedDelivery.toISOString(),
       linkedInvoices: linkedInvoiceCount,
       shipmentDetails: {
         cargo: state.shipmentData?.cargo,
-        weight: state.shipmentData?.weight
+        weight: state.shipmentData?.weight,
       }
     });
 
@@ -120,7 +185,8 @@ export async function POST(request: NextRequest) {
     console.error('[Booking] Error:', error);
     return NextResponse.json({ 
       error: 'Failed to book shipment',
-      details: error.message 
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }
 }

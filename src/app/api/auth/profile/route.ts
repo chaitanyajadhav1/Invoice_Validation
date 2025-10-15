@@ -1,4 +1,4 @@
-// src/app/api/auth/profile/route.ts - Updated with Organization Support and TypeScript fixes
+// src/app/api/auth/profile/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserToken, getUserWithOrganization, updateUser, isValidEmail } from '@/lib/auth';
 import { getUserDocuments, getUserShipments, getUserInvoices } from '@/lib/database';
@@ -12,6 +12,10 @@ interface Shipment {
 interface Document {
   document_id: string;
   filename: string;
+  uploaded_at: string;
+  collection_name: string;
+  strategy: string;
+  processed: boolean;
   [key: string]: any;
 }
 
@@ -64,7 +68,7 @@ export async function GET(request: NextRequest) {
       }, { status: 401 });
     }
     
-    // verifyUserToken now returns { userId, organizationId } or null
+    // verifyUserToken returns { userId, organizationId } or null
     const tokenData = await verifyUserToken(token);
     if (!tokenData) {
       return NextResponse.json({ 
@@ -74,6 +78,8 @@ export async function GET(request: NextRequest) {
     }
     
     const { userId, organizationId } = tokenData;
+    
+    console.log('[Profile API] Fetching profile for user:', userId, 'org:', organizationId);
     
     // Fetch user with organization details
     const userWithOrg = await getUserWithOrganization(userId);
@@ -93,7 +99,10 @@ export async function GET(request: NextRequest) {
     }
     
     // Fetch user's data
+    console.log('[Profile API] Fetching user documents...');
     const documents = (await getUserDocuments(userId)) as Document[];
+    console.log('[Profile API] Documents found:', documents.length);
+    
     const shipments = (await getUserShipments(userId)) as Shipment[];
     const invoices = (await getUserInvoices(userId)) as Invoice[];
     
@@ -137,10 +146,12 @@ export async function GET(request: NextRequest) {
       }
     };
     
+    console.log('[Profile API] Response documents count:', response.user.documents.length);
+    
     return NextResponse.json(response);
 
   } catch (error: any) {
-    console.error('Error fetching profile:', error);
+    console.error('[Profile API] Error fetching profile:', error);
     return NextResponse.json({ 
       error: 'Failed to fetch profile',
       details: error.message 
@@ -209,7 +220,7 @@ export async function PUT(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error updating profile:', error);
+    console.error('[Profile API] Error updating profile:', error);
     return NextResponse.json({ 
       error: 'Failed to update profile',
       details: error.message 

@@ -3,6 +3,8 @@
 import { supabaseAdmin } from './config';
 import { ConversationState } from './workflow';
 
+
+
 // ========== CONVERSATION STATE MANAGEMENT ==========
 
 export async function createConversationState(state: ConversationState) {
@@ -15,6 +17,7 @@ export async function createConversationState(state: ConversationState) {
       current_step: state.currentStep,
       shipment_data: state.shipmentData,
       invoice_ids: state.invoiceIds,
+      document_ids: state.documentIds,
       messages: state.messages,
       attempts: state.attempts,
       last_activity: state.lastActivity,
@@ -55,6 +58,7 @@ export async function getConversationState(threadId: string): Promise<Conversati
     currentStep: data.current_step,
     shipmentData: data.shipment_data || {},
     invoiceIds: data.invoice_ids || [],
+    documentIds: data.document_ids || [],
     messages: data.messages || [],
     attempts: data.attempts || 0,
     lastActivity: data.last_activity
@@ -68,6 +72,7 @@ export async function updateConversationState(state: ConversationState) {
       current_step: state.currentStep,
       shipment_data: state.shipmentData,
       invoice_ids: state.invoiceIds,
+      document_ids: state.documentIds,
       messages: state.messages.slice(-50),
       attempts: state.attempts,
       last_activity: state.lastActivity,
@@ -113,42 +118,108 @@ export async function getUserConversations(userId: string) {
 
 // ========== DOCUMENT MANAGEMENT ==========
 
-export async function createDocument(docData: any) {
+export async function createDocument(docData: {
+  documentId: string;
+  userId: string;
+  organizationId?: string;
+  filename: string;
+  filepath?: string;
+  collectionName: string;
+  strategy: string;
+}) {
+  console.log('[DB] Creating document with data:', {
+    document_id: docData.documentId,
+    user_id: docData.userId,
+    organization_id: docData.organizationId,
+    filename: docData.filename
+  });
+
   const { data, error } = await supabaseAdmin
     .from('documents')
     .insert([{
       document_id: docData.documentId,
       user_id: docData.userId,
-      organization_id: docData.organizationId,
+      organization_id: docData.organizationId || null,
       filename: docData.filename,
+      filepath: docData.filepath || null,
       collection_name: docData.collectionName,
       strategy: docData.strategy,
-      uploaded_at: new Date().toISOString()
+      uploaded_at: new Date().toISOString(),
+      processed: false
     }])
     .select()
     .single();
-  if (error) throw error;
+
+  if (error) {
+    console.error('[DB] Error creating document:', error);
+    throw error;
+  }
+
+  console.log('[DB] Document created successfully:', data?.document_id);
   return data;
 }
 
 export async function getUserDocuments(userId: string) {
-  const { data, error } = await supabaseAdmin
-    .from('documents')
-    .select('*')
-    .eq('user_id', userId)
-    .order('uploaded_at', { ascending: false });
-  if (error) throw error;
-  return data || [];
+  console.log('[DB] Fetching documents for user:', userId);
+  
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .select('*')
+      .eq('user_id', userId)
+      .order('uploaded_at', { ascending: false });
+    
+    if (error) {
+      console.error('[DB] Error fetching user documents:', error);
+      throw error;
+    }
+    
+    console.log('[DB] Found user documents:', data?.length || 0);
+    return data || [];
+  } catch (err) {
+    console.error('[DB] Exception in getUserDocuments:', err);
+    throw err;
+  }
 }
 
 export async function getOrganizationDocuments(organizationId: string) {
+  console.log('[DB] Fetching documents for organization:', organizationId);
+  
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('uploaded_at', { ascending: false });
+    
+    if (error) {
+      console.error('[DB] Error fetching organization documents:', error);
+      throw error;
+    }
+    
+    console.log('[DB] Found organization documents:', data?.length || 0);
+    return data || [];
+  } catch (err) {
+    console.error('[DB] Exception in getOrganizationDocuments:', err);
+    throw err;
+  }
+}
+
+export async function getDocumentById(documentId: string) {
+  console.log('[DB] Fetching document by ID:', documentId);
+  
   const { data, error } = await supabaseAdmin
     .from('documents')
     .select('*')
-    .eq('organization_id', organizationId)
-    .order('uploaded_at', { ascending: false });
-  if (error) throw error;
-  return data || [];
+    .eq('document_id', documentId)
+    .single();
+  
+  if (error && error.code !== 'PGRST116') {
+    console.error('[DB] Error fetching document:', error);
+    throw error;
+  }
+  
+  return data || null;
 }
 
 // ========== SHIPPING MANAGEMENT ==========

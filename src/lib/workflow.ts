@@ -1,9 +1,9 @@
-// src/lib/workflow.ts - Rule-based state machine with organization support
+// src/lib/workflow.ts - Rule-based state machine with organization and document support
 
 export interface ConversationState {
   threadId: string;
   userId: string;
-  organizationId: string; // ADDED: Organization support
+  organizationId: string;
   currentStep: WorkflowStep;
   shipmentData: {
     origin?: string;
@@ -13,12 +13,13 @@ export interface ConversationState {
     serviceLevel?: 'Express' | 'Standard' | 'Economy';
   };
   invoiceIds: string[];
+  documentIds: string[]; // ADDED: Track uploaded documents
   messages: Array<{
     role: 'user' | 'assistant' | 'system';
     content: string;
     timestamp: string;
   }>;
-  attempts: number; // Track failed attempts at current step
+  attempts: number;
   lastActivity: string;
 }
 
@@ -31,6 +32,7 @@ export type WorkflowStep =
   | 'collect_service_level'
   | 'ready_for_quote'
   | 'quote_generated'
+  | 'document_query' // ADDED: For document chat within conversation
   | 'completed';
 
 // Pattern matching for data extraction
@@ -187,6 +189,18 @@ export class DataExtractor {
     return null;
   }
 
+  // ADDED: Detect if user is asking about documents
+  static isDocumentQuery(text: string): boolean {
+    const documentKeywords = [
+      'document', 'pdf', 'file', 'invoice', 'what is in',
+      'summarize', 'summary', 'tell me about', 'what does',
+      'show me', 'read', 'analyze', 'extract', 'find'
+    ];
+
+    const lowerText = text.toLowerCase();
+    return documentKeywords.some(keyword => lowerText.includes(keyword));
+  }
+
   // Smart extraction - tries to find multiple fields
   static smartExtract(text: string, currentData: ConversationState['shipmentData']): Partial<ConversationState['shipmentData']> {
     const extracted: Partial<ConversationState['shipmentData']> = {};
@@ -238,7 +252,10 @@ To get started, please tell me:
 
 Example: "From Mumbai to New York" or "Mumbai to Dubai"
 
-You can also upload commercial invoices anytime!`;
+You can also:
+- Upload commercial invoices anytime
+- Upload documents and ask questions about them
+- Type "help" for more options`;
   }
 
   static askOrigin(attempts: number): string {
@@ -334,7 +351,7 @@ Should I generate quotes for this shipment? (Type "yes" to proceed)`;
   }
 
   static invoiceUploaded(validation: any): string {
-    let response = `Invoice Validation Complete!\n\n`;
+    let response = `✅ Invoice Validation Complete!\n\n`;
     response += `Completeness: ${validation.completeness}%\n\n`;
 
     if (validation.isValid) {
@@ -352,6 +369,41 @@ Should I generate quotes for this shipment? (Type "yes" to proceed)`;
     }
 
     return response;
+  }
+
+  // ADDED: Document upload response
+  static documentUploaded(filename: string, processed: boolean): string {
+    if (processed) {
+      return `✅ Document uploaded and processed: ${filename}
+
+You can now ask questions about this document, or continue with your shipment booking.`;
+    } else {
+      return `📄 Document uploaded: ${filename}
+
+Processing... This may take 10-30 seconds. You can continue with your shipment booking, and I'll let you know when the document is ready for questions.`;
+    }
+  }
+
+  // ADDED: Help response
+  static help(): string {
+    return `Here's what I can do:
+
+**Shipment Booking:**
+- Get freight quotes
+- Book shipments
+- Track shipments
+
+**Document Management:**
+- Upload and process invoices
+- Upload PDFs and ask questions
+- Extract information from documents
+
+**Commands:**
+- "start over" - Reset conversation
+- "help" - Show this message
+- "status" - Show current shipment details
+
+How can I help you today?`;
   }
 }
 
@@ -388,15 +440,41 @@ export class WorkflowStateMachine {
   ): {
     nextState: ConversationState;
     response: string;
+    action?: 'GENERATE_QUOTE' | 'DOCUMENT_QUERY';
   } {
     const lowerMessage = userMessage.toLowerCase().trim();
 
-    // Check for invoice upload system message
+    // ADDED: Check for system messages
     if (userMessage.includes('Invoice uploaded:')) {
-      // This will be handled separately in the route
+      return { nextState: state, response: '' };
+    }
+
+    if (userMessage.includes('Document uploaded:')) {
+      return { nextState: state, response: '' };
+    }
+
+    // ADDED: Check for help command
+    if (lowerMessage === 'help' || lowerMessage === 'commands') {
       return {
         nextState: state,
-        response: ''
+        response: ResponseGenerator.help()
+      };
+    }
+
+    // ADDED: Check for status command
+    if (lowerMessage === 'status' || lowerMessage === 'show details') {
+      return {
+        nextState: state,
+        response: ResponseGenerator.confirmDetails(state.shipmentData)
+      };
+    }
+
+    // ADDED: Check for document query
+    if (DataExtractor.isDocumentQuery(userMessage) && state.documentIds.length > 0) {
+      return {
+        nextState: state,
+        response: '', // Will be handled by document chat API
+        action: 'DOCUMENT_QUERY'
       };
     }
 
@@ -477,7 +555,17 @@ export class WorkflowStateMachine {
         // Check for confirmation
         if (lowerMessage.includes('yes') || lowerMessage.includes('confirm') || 
             lowerMessage.includes('proceed') || lowerMessage.includes('generate')) {
-          response = 'GENERATE_QUOTE'; // Signal to generate quote
+          return {
+            nextState: {
+              ...state,
+              currentStep: 'quote_generated',
+              shipmentData: updatedData,
+              attempts: 0,
+              lastActivity: new Date().toISOString()
+            },
+            response: 'GENERATE_QUOTE',
+            action: 'GENERATE_QUOTE'
+          };
         } else if (lowerMessage.includes('no') || lowerMessage.includes('change')) {
           response = 'What would you like to change? (origin, destination, cargo, weight, service)';
         } else {
@@ -520,6 +608,7 @@ export function createInitialConversationState(
     currentStep: 'greeting',
     shipmentData: {},
     invoiceIds: [],
+    documentIds: [], // ADDED
     messages: [{
       role: 'system',
       content: 'Conversation started',

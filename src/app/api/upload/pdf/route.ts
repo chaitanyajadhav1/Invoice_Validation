@@ -1,3 +1,4 @@
+// src/app/api/upload/pdf/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserToken } from '@/lib/auth';
 import { createDocument } from '@/lib/database';
@@ -18,13 +19,20 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
     
-    const userId = await verifyUserToken(token);
-    if (!userId) {
+    // Handle token verification - it returns { userId, organizationId }
+    const tokenData = await verifyUserToken(token);
+    if (!tokenData) {
       return NextResponse.json({ 
         error: 'Invalid or expired token',
         requiresAuth: true
       }, { status: 401 });
     }
+
+    // Extract userId and organizationId
+    const userId = typeof tokenData === 'string' ? tokenData : tokenData.userId;
+    const organizationId = typeof tokenData === 'object' ? tokenData.organizationId : undefined;
+
+    console.log('[Upload PDF] User:', userId, 'Organization:', organizationId);
 
     const formData = await request.formData();
     const file = formData.get('pdf') as File;
@@ -59,25 +67,39 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer();
     await writeFile(filePath, Buffer.from(bytes));
 
-    await createDocument({ 
-      documentId, 
-      userId, 
-      filename: file.name, 
-      collectionName, 
-      strategy 
-    });
+    console.log('[Upload PDF] File saved to:', filePath);
+
+    // Create document in database
+    const docData = {
+      documentId,
+      userId,
+      organizationId,
+      filename: file.name,
+      filepath: filePath,
+      collectionName,
+      strategy
+    };
+
+    const document = await createDocument(docData);
+    console.log('[Upload PDF] Document created in DB:', document.document_id);
 
     return NextResponse.json({ 
+      success: true,
       message: 'PDF uploaded and queued for processing',
       filename: file.name,
       documentId,
       userId,
+      organizationId,
       collectionName,
-      strategy
+      strategy,
+      document
     });
 
   } catch (error: any) {
-    console.error('Error uploading PDF:', error);
-    return NextResponse.json({ error: 'Failed to upload PDF' }, { status: 500 });
+    console.error('[Upload PDF] Error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to upload PDF',
+      details: error.message 
+    }, { status: 500 });
   }
 }
