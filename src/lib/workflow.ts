@@ -13,7 +13,7 @@ export interface ConversationState {
     serviceLevel?: 'Express' | 'Standard' | 'Economy';
   };
   invoiceIds: string[];
-  documentIds: string[]; // ADDED: Track uploaded documents
+  documentIds: string[];
   messages: Array<{
     role: 'user' | 'assistant' | 'system';
     content: string;
@@ -32,12 +32,11 @@ export type WorkflowStep =
   | 'collect_service_level'
   | 'ready_for_quote'
   | 'quote_generated'
-  | 'document_query' // ADDED: For document chat within conversation
+  | 'document_query'
   | 'completed';
 
 // Pattern matching for data extraction
 export class DataExtractor {
-  // Extract Indian cities from text
   static extractIndianCity(text: string): string | null {
     const indianCities = [
       'Mumbai', 'Delhi', 'Bangalore', 'Bengaluru', 'Hyderabad', 'Chennai',
@@ -60,23 +59,18 @@ export class DataExtractor {
     return null;
   }
 
-  // Extract international cities/countries
   static extractLocation(text: string): string | null {
     const locations = [
-      // Countries
       'USA', 'United States', 'America', 'UK', 'United Kingdom', 'China',
       'Japan', 'Germany', 'France', 'Canada', 'Australia', 'Singapore',
       'UAE', 'Dubai', 'Saudi Arabia', 'Malaysia', 'Thailand', 'Vietnam',
-      // Major cities
       'New York', 'Los Angeles', 'London', 'Paris', 'Tokyo', 'Beijing',
       'Shanghai', 'Hong Kong', 'Singapore', 'Dubai', 'Sydney', 'Toronto'
     ];
 
-    // First try Indian cities
     const indianCity = this.extractIndianCity(text);
     if (indianCity) return indianCity;
 
-    // Then try international
     const lowerText = text.toLowerCase();
     for (const location of locations) {
       if (lowerText.includes(location.toLowerCase())) {
@@ -84,7 +78,6 @@ export class DataExtractor {
       }
     }
 
-    // Try pattern: "from X" or "to Y"
     const fromMatch = text.match(/from\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
     if (fromMatch) return fromMatch[1];
 
@@ -94,16 +87,13 @@ export class DataExtractor {
     return null;
   }
 
-  // Extract weight from text
   static extractWeight(text: string): string | null {
-    // Pattern: number + kg/kgs/kilos/kilograms
     const kgPattern = /(\d+(?:\.\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)/i;
     const kgMatch = text.match(kgPattern);
     if (kgMatch) {
       return `${kgMatch[1]} kg`;
     }
 
-    // Pattern: number + lbs/pounds
     const lbsPattern = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)/i;
     const lbsMatch = text.match(lbsPattern);
     if (lbsMatch) {
@@ -111,7 +101,6 @@ export class DataExtractor {
       return `${kg} kg`;
     }
 
-    // Pattern: number + tons
     const tonsPattern = /(\d+(?:\.\d+)?)\s*(?:tons?|tonnes?)/i;
     const tonsMatch = text.match(tonsPattern);
     if (tonsMatch) {
@@ -119,7 +108,6 @@ export class DataExtractor {
       return `${kg} kg`;
     }
 
-    // Just a number (assume kg if between 1-10000)
     const numberPattern = /(\d+(?:\.\d+)?)/;
     const numberMatch = text.match(numberPattern);
     if (numberMatch) {
@@ -132,9 +120,7 @@ export class DataExtractor {
     return null;
   }
 
-  // Extract cargo description
   static extractCargo(text: string): string | null {
-    // Common cargo keywords
     const cargoKeywords = [
       'electronics', 'textile', 'machinery', 'furniture', 'documents',
       'samples', 'garments', 'spare parts', 'raw materials', 'finished goods',
@@ -145,7 +131,6 @@ export class DataExtractor {
     const lowerText = text.toLowerCase();
     for (const keyword of cargoKeywords) {
       if (lowerText.includes(keyword)) {
-        // Try to extract a phrase around the keyword
         const contextPattern = new RegExp(`([\\w\\s]{0,30}${keyword}[\\w\\s]{0,30})`, 'i');
         const match = text.match(contextPattern);
         if (match) {
@@ -155,9 +140,7 @@ export class DataExtractor {
       }
     }
 
-    // If no keyword found, use the whole message (truncated)
     if (text.length > 10 && text.length < 200) {
-      // Skip common phrases
       const skipPhrases = ['yes', 'no', 'ok', 'sure', 'thanks', 'hello'];
       if (!skipPhrases.some(phrase => lowerText === phrase)) {
         return text.trim().substring(0, 100);
@@ -167,7 +150,6 @@ export class DataExtractor {
     return null;
   }
 
-  // Extract service level
   static extractServiceLevel(text: string): 'Express' | 'Standard' | 'Economy' | null {
     const lowerText = text.toLowerCase();
     
@@ -189,7 +171,6 @@ export class DataExtractor {
     return null;
   }
 
-  // ADDED: Detect if user is asking about documents
   static isDocumentQuery(text: string): boolean {
     const documentKeywords = [
       'document', 'pdf', 'file', 'invoice', 'what is in',
@@ -201,17 +182,14 @@ export class DataExtractor {
     return documentKeywords.some(keyword => lowerText.includes(keyword));
   }
 
-  // Smart extraction - tries to find multiple fields
   static smartExtract(text: string, currentData: ConversationState['shipmentData']): Partial<ConversationState['shipmentData']> {
     const extracted: Partial<ConversationState['shipmentData']> = {};
 
-    // Try to extract origin if not set
     if (!currentData.origin) {
       const location = this.extractLocation(text);
       if (location) extracted.origin = location;
     }
 
-    // Try to extract destination if not set but origin is set
     if (currentData.origin && !currentData.destination) {
       const location = this.extractLocation(text);
       if (location && location !== currentData.origin) {
@@ -219,19 +197,16 @@ export class DataExtractor {
       }
     }
 
-    // Extract weight
     if (!currentData.weight) {
       const weight = this.extractWeight(text);
       if (weight) extracted.weight = weight;
     }
 
-    // Extract cargo
     if (!currentData.cargo) {
       const cargo = this.extractCargo(text);
       if (cargo) extracted.cargo = cargo;
     }
 
-    // Extract service level
     if (!currentData.serviceLevel) {
       const service = this.extractServiceLevel(text);
       if (service) extracted.serviceLevel = service;
@@ -371,7 +346,6 @@ Should I generate quotes for this shipment? (Type "yes" to proceed)`;
     return response;
   }
 
-  // ADDED: Document upload response
   static documentUploaded(filename: string, processed: boolean): string {
     if (processed) {
       return `✅ Document uploaded and processed: ${filename}
@@ -384,7 +358,6 @@ Processing... This may take 10-30 seconds. You can continue with your shipment b
     }
   }
 
-  // ADDED: Help response
   static help(): string {
     return `Here's what I can do:
 
@@ -412,19 +385,16 @@ export class WorkflowStateMachine {
   static determineNextStep(state: ConversationState): WorkflowStep {
     const { shipmentData } = state;
 
-    // Check what data we have
     const hasOrigin = !!shipmentData.origin;
     const hasDestination = !!shipmentData.destination;
     const hasCargo = !!shipmentData.cargo;
     const hasWeight = !!shipmentData.weight;
     const hasService = !!shipmentData.serviceLevel;
 
-    // Ready for quote if we have minimum data
     if (hasOrigin && hasDestination && hasCargo && hasWeight) {
       return 'ready_for_quote';
     }
 
-    // Ask for missing fields in order
     if (!hasOrigin) return 'collect_origin';
     if (!hasDestination) return 'collect_destination';
     if (!hasCargo) return 'collect_cargo';
@@ -444,16 +414,10 @@ export class WorkflowStateMachine {
   } {
     const lowerMessage = userMessage.toLowerCase().trim();
 
-    // ADDED: Check for system messages
-    if (userMessage.includes('Invoice uploaded:')) {
+    if (userMessage.includes('Invoice uploaded:') || userMessage.includes('Document uploaded:')) {
       return { nextState: state, response: '' };
     }
 
-    if (userMessage.includes('Document uploaded:')) {
-      return { nextState: state, response: '' };
-    }
-
-    // ADDED: Check for help command
     if (lowerMessage === 'help' || lowerMessage === 'commands') {
       return {
         nextState: state,
@@ -461,7 +425,6 @@ export class WorkflowStateMachine {
       };
     }
 
-    // ADDED: Check for status command
     if (lowerMessage === 'status' || lowerMessage === 'show details') {
       return {
         nextState: state,
@@ -469,26 +432,22 @@ export class WorkflowStateMachine {
       };
     }
 
-    // ADDED: Check for document query
     if (DataExtractor.isDocumentQuery(userMessage) && state.documentIds.length > 0) {
       return {
         nextState: state,
-        response: '', // Will be handled by document chat API
+        response: '',
         action: 'DOCUMENT_QUERY'
       };
     }
 
-    // Smart extraction - try to get data from message
     const extracted = DataExtractor.smartExtract(userMessage, state.shipmentData);
     const updatedData = { ...state.shipmentData, ...extracted };
 
     let response = '';
     let attempts = state.attempts;
 
-    // Process based on current step
     switch (state.currentStep) {
       case 'greeting':
-        // Try to extract origin/destination from first message
         if (extracted.origin || extracted.destination) {
           response = extracted.origin 
             ? ResponseGenerator.askDestination(extracted.origin, 0)
@@ -544,7 +503,6 @@ export class WorkflowStateMachine {
           response = ResponseGenerator.confirmDetails(updatedData);
           attempts = 0;
         } else {
-          // Default to Standard
           updatedData.serviceLevel = 'Standard';
           response = ResponseGenerator.confirmDetails(updatedData);
           attempts = 0;
@@ -552,7 +510,6 @@ export class WorkflowStateMachine {
         break;
 
       case 'ready_for_quote':
-        // Check for confirmation
         if (lowerMessage.includes('yes') || lowerMessage.includes('confirm') || 
             lowerMessage.includes('proceed') || lowerMessage.includes('generate')) {
           return {
@@ -577,7 +534,6 @@ export class WorkflowStateMachine {
         response = ResponseGenerator.invalidInput();
     }
 
-    // Determine next step
     const nextStep = this.determineNextStep({
       ...state,
       shipmentData: updatedData
@@ -595,7 +551,6 @@ export class WorkflowStateMachine {
   }
 }
 
-// Helper function to create initial state
 export function createInitialConversationState(
   threadId: string,
   userId: string,
@@ -608,7 +563,7 @@ export function createInitialConversationState(
     currentStep: 'greeting',
     shipmentData: {},
     invoiceIds: [],
-    documentIds: [], // ADDED
+    documentIds: [],
     messages: [{
       role: 'system',
       content: 'Conversation started',

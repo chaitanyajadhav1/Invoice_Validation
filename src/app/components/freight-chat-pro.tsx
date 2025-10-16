@@ -246,6 +246,28 @@ interface BankDetails {
   swiftOrIfsc: string
 }
 
+// ============================================================================
+// BANK VERIFICATION INTERFACE
+// ============================================================================
+
+interface BankVerification {
+  verified: boolean
+  status: 'verified' | 'verified_with_warnings' | 'needs_review' | 'failed' | 'pending'
+  notes: string
+  invoiceData?: {
+    matchedFields?: string[]
+    mismatches?: Array<{
+      field: string
+      expected: string
+      provided: string
+      similarity?: number
+    }>
+    invoiceCount?: number
+    totalAmount?: number
+    currency?: string
+  }
+}
+
 const API_BASE = "/api"
 const WORKER_BASE = "/api/worker"
 
@@ -288,6 +310,13 @@ export default function FreightChatPro() {
   const [documentChatInput, setDocumentChatInput] = useState<string>("")
   const [documentChatLoading, setDocumentChatLoading] = useState<boolean>(false)
   const [documentChatResponse, setDocumentChatResponse] = useState<string>("")
+  
+
+  const [invoiceSearchQuery, setInvoiceSearchQuery] = useState<string>("")
+const [invoiceSearchLoading, setInvoiceSearchLoading] = useState<boolean>(false)
+const [invoiceSearchResults, setInvoiceSearchResults] = useState<any[]>([])
+const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null)
+const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState<boolean>(false)
 
   const [trackingNumber, setTrackingNumber] = useState<string>("")
   const [trackingInfo, setTrackingInfo] = useState<TrackingInfo | null>(null)
@@ -320,6 +349,13 @@ export default function FreightChatPro() {
   })
 
   const [otherDocs, setOtherDocs] = useState<File[]>([])
+
+  // ============================================================================
+  // BANK VERIFICATION STATE VARIABLES
+  // ============================================================================
+
+  const [bankVerification, setBankVerification] = useState<BankVerification | null>(null)
+  const [bankSubmitting, setBankSubmitting] = useState<boolean>(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -715,6 +751,66 @@ export default function FreightChatPro() {
     }, 1000)
   }
 
+  // UPDATED INVOICE LOOKUP FUNCTION
+  const handleInvoiceLookup = async () => {
+    if (!invoiceSearchQuery.trim() || !token) return
+
+    setInvoiceSearchLoading(true)
+    setInvoiceSearchResults([])
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/invoice/lookup?query=${encodeURIComponent(invoiceSearchQuery)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Handle the response structure from the logs
+        if (data.success && data.invoices) {
+          setInvoiceSearchResults(data.invoices)
+          setSnackbar({
+            open: true,
+            message: `Found ${data.invoices_count || data.invoices.length} invoice(s)`,
+            severity: "success",
+          })
+        } else {
+          setInvoiceSearchResults([])
+          setSnackbar({
+            open: true,
+            message: "No invoices found matching your search",
+            severity: "info",
+          })
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: data.error || "Search failed",
+          severity: "error",
+        })
+      }
+    } catch (error) {
+      console.error("Invoice lookup error:", error)
+      setSnackbar({
+        open: true,
+        message: "Failed to search invoices",
+        severity: "error",
+      })
+    } finally {
+      setInvoiceSearchLoading(false)
+    }
+  }
+
+  const handleViewInvoiceDetails = (invoice: any) => {
+    setSelectedInvoice(invoice)
+    setInvoiceDetailsOpen(true)
+  }
+
   const handleDocumentUpload = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0]
     if (!file || !token) return
@@ -831,26 +927,313 @@ export default function FreightChatPro() {
     }
   }
 
-  const handleBankDetailsSubmit = (e: React.FormEvent) => {
+  // ============================================================================
+  // BANK VERIFICATION HELPER FUNCTIONS
+  // ============================================================================
+
+  const getVerificationSummaryText = (verification: BankVerification): string => {
+    const statusEmojis = {
+      verified: '✅',
+      verified_with_warnings: '⚠️',
+      needs_review: '🔍',
+      failed: '❌',
+      pending: '⏳'
+    }
+    
+    const emoji = statusEmojis[verification.status] || '📋'
+    const statusText = verification.status.replace(/_/g, ' ').toUpperCase()
+    
+    let summary = `${emoji} Bank Details Verification: ${statusText}\n\n`
+    
+    if (verification.verified) {
+      summary += '✓ All bank details successfully verified against invoice data.\n'
+    } else {
+      summary += '⚠ Bank details require attention.\n'
+    }
+    
+    if (verification.invoiceData?.matchedFields && verification.invoiceData.matchedFields.length > 0) {
+      summary += `\n✓ Matched: ${verification.invoiceData.matchedFields.join(', ')}`
+    }
+    
+    if (verification.invoiceData?.mismatches && verification.invoiceData.mismatches.length > 0) {
+      summary += `\n\n⚠ Mismatches found:\n`
+      verification.invoiceData.mismatches.forEach(m => {
+        summary += `  • ${m.field}: Expected "${m.expected}", provided "${m.provided}"`
+        if (m.similarity) {
+          summary += ` (${Math.round(m.similarity * 100)}% match)`
+        }
+        summary += '\n'
+      })
+    }
+    
+    if (verification.notes) {
+      summary += `\n${verification.notes}`
+    }
+    
+    return summary
+  }
+
+  const renderVerificationResult = (verification: BankVerification) => {
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'verified': return 'success'
+        case 'verified_with_warnings': return 'warning'
+        case 'needs_review': return 'info'
+        case 'failed': return 'error'
+        default: return 'info'
+      }
+    }
+
+    const getStatusIcon = (status: string) => {
+      switch (status) {
+        case 'verified': return <VerifiedIcon />
+        case 'verified_with_warnings': return <WarningIcon />
+        case 'needs_review': return <ErrorIcon />
+        case 'failed': return <ErrorIcon />
+        default: return <BankIcon />
+      }
+    }
+
+    return (
+      <Card sx={{ maxWidth: 700, mt: 2 }}>
+        <CardContent>
+          <Stack spacing={2}>
+            {/* Status Header */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {getStatusIcon(verification.status)}
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6">Bank Details Verification</Typography>
+                <Chip 
+                  label={verification.status.replace(/_/g, ' ').toUpperCase()} 
+                  color={getStatusColor(verification.status)}
+                  size="small"
+                  sx={{ mt: 0.5 }}
+                />
+              </Box>
+            </Box>
+
+            <Divider />
+
+            {/* Verification Details */}
+            {verification.verified ? (
+              <Alert severity="success" icon={<CheckCircleIcon />}>
+                <Typography variant="body2" fontWeight="bold">
+                  All bank details successfully verified!
+                </Typography>
+                <Typography variant="caption">
+                  Your bank information matches the invoice data.
+                </Typography>
+              </Alert>
+            ) : (
+              <Alert severity={getStatusColor(verification.status)} icon={getStatusIcon(verification.status)}>
+                <Typography variant="body2" fontWeight="bold">
+                  Verification {verification.status.replace(/_/g, ' ')}
+                </Typography>
+                <Typography variant="caption">
+                  {verification.notes || 'Some discrepancies were found.'}
+                </Typography>
+              </Alert>
+            )}
+
+            {/* Matched Fields */}
+            {verification.invoiceData?.matchedFields && verification.invoiceData.matchedFields.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" color="success.main" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CheckCircleIcon fontSize="small" /> Verified Fields
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {verification.invoiceData.matchedFields.map((field, idx) => (
+                    <Chip 
+                      key={idx}
+                      label={field}
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            )}
+
+            {/* Mismatches */}
+            {verification.invoiceData?.mismatches && verification.invoiceData.mismatches.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" color="warning.main" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <WarningIcon fontSize="small" /> Discrepancies Found
+                </Typography>
+                <Stack spacing={1}>
+                  {verification.invoiceData.mismatches.map((mismatch, idx) => (
+                    <Paper key={idx} sx={{ p: 1.5, bgcolor: 'warning.lighter' }}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {mismatch.field}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="caption" color="text.secondary">Expected:</Typography>
+                          <Typography variant="body2">{mismatch.expected}</Typography>
+                        </Box>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="caption" color="text.secondary">Provided:</Typography>
+                          <Typography variant="body2">{mismatch.provided}</Typography>
+                        </Box>
+                      </Box>
+                      {mismatch.similarity && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          Similarity: {Math.round(mismatch.similarity * 100)}%
+                        </Typography>
+                      )}
+                    </Paper>
+                  ))}
+                </Stack>
+              </Box>
+            )}
+
+            {/* Invoice Summary */}
+            {verification.invoiceData && (
+              <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Invoice Summary
+                </Typography>
+                <Stack spacing={0.5}>
+                  {verification.invoiceData.invoiceCount && (
+                    <Typography variant="body2">
+                      Invoices Processed: <strong>{verification.invoiceData.invoiceCount}</strong>
+                    </Typography>
+                  )}
+                  {verification.invoiceData.totalAmount && (
+                    <Typography variant="body2">
+                      Total Amount: <strong>{verification.invoiceData.currency} {verification.invoiceData.totalAmount}</strong>
+                    </Typography>
+                  )}
+                </Stack>
+              </Box>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ============================================================================
+  // UPDATED BANK DETAILS SUBMIT FUNCTION
+  // ============================================================================
+
+  const handleBankDetailsSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    const bankMessage: Message = {
-      role: "user",
-      content: `Bank details submitted for ${bankDetails.bankName}`,
-      timestamp: new Date().toISOString(),
+    
+    if (!token || !agentThreadId || !user) {
+      setSnackbar({
+        open: true,
+        message: 'Please login and start a shipment first',
+        severity: 'warning'
+      })
+      return
     }
 
-    const verificationMessage: Message = {
-      role: "assistant",
-      content: "Perfect! Would you like to upload any additional documents (packing list, permits, etc.)?",
-      timestamp: new Date().toISOString(),
-      metadata: { type: "docs_upload" }
-    }
+    setBankSubmitting(true)
+    setSnackbar({ open: true, message: 'Submitting bank details...', severity: 'info' })
 
-    setAgentMessages((prev) => [...prev, bankMessage, verificationMessage])
-    setShowBankForm(false)
-    setShowDocsUpload(true)
-    setWorkflowStep(4)
+    try {
+      // Call the bank details API endpoint
+      const response = await fetch(`${API_BASE}/agent/shipping/bank-details`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          threadId: agentThreadId,
+          userId: user.userId,
+          organizationId: organization?.organizationId,
+          accountName: bankDetails.accountName,
+          bankName: bankDetails.bankName,
+          accountNumber: bankDetails.accountNumber,
+          swiftOrIfsc: bankDetails.swiftOrIfsc
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Store verification result
+        setBankVerification(data.verification)
+        
+        // User message
+        const bankMessage: Message = {
+          role: 'user',
+          content: `Bank details submitted for ${bankDetails.bankName}`,
+          timestamp: new Date().toISOString(),
+        }
+
+        // Verification result message
+        const verificationMessage: Message = {
+          role: 'assistant',
+          content: getVerificationSummaryText(data.verification),
+          timestamp: new Date().toISOString(),
+          metadata: { 
+            type: 'verification_result', 
+            data: data.verification 
+          }
+        }
+
+        // Determine next step based on verification status
+        let nextStepMessage: Message
+        
+        if (data.verification.verified || data.verification.status === 'verified_with_warnings') {
+          nextStepMessage = {
+            role: 'assistant',
+            content: 'Great! Would you like to upload any additional documents (packing list, permits, etc.)?',
+            timestamp: new Date().toISOString(),
+            metadata: { type: 'docs_upload' }
+          }
+          setShowDocsUpload(true)
+          setWorkflowStep(4)
+        } else {
+          nextStepMessage = {
+            role: 'assistant',
+            content: 'Please review the verification results and correct any discrepancies. You can resubmit your bank details.',
+            timestamp: new Date().toISOString(),
+          }
+        }
+
+        setAgentMessages((prev) => [...prev, bankMessage, verificationMessage, nextStepMessage])
+        
+        // Hide form only if verification passed
+        if (data.verification.verified || data.verification.status === 'verified_with_warnings') {
+          setShowBankForm(false)
+        }
+
+        // Success notification
+        setSnackbar({
+          open: true,
+          message: data.verification.verified 
+            ? 'Bank details verified successfully!' 
+            : 'Bank details submitted - please review verification results',
+          severity: data.verification.verified ? 'success' : 'warning'
+        })
+
+        // Refresh data
+        if (user) {
+          setTimeout(() => fetchRedisData(user.userId), 2000)
+        }
+
+      } else {
+        setSnackbar({
+          open: true,
+          message: data.error || 'Failed to submit bank details',
+          severity: 'error'
+        })
+      }
+    } catch (error) {
+      console.error('Bank details submission error:', error)
+      setSnackbar({
+        open: true,
+        message: 'Network error. Please try again.',
+        severity: 'error'
+      })
+    } finally {
+      setBankSubmitting(false)
+    }
   }
 
   const handleOtherDocsUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1179,7 +1562,10 @@ export default function FreightChatPro() {
     </Card>
   )
 
-  // Render Bank Details Form in Chat
+  // ============================================================================
+  // UPDATED BANK FORM IN CHAT
+  // ============================================================================
+
   const renderBankFormInChat = () => (
     <Card sx={{ maxWidth: 600, bgcolor: "background.paper", border: 1, borderColor: 'divider' }}>
       <CardContent>
@@ -1190,6 +1576,10 @@ export default function FreightChatPro() {
               <Typography variant="h6">Bank Details</Typography>
             </Box>
             
+            <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
+              Your bank details will be automatically verified against the uploaded invoice.
+            </Alert>
+            
             <TextField
               fullWidth
               label="Account Name"
@@ -1197,6 +1587,8 @@ export default function FreightChatPro() {
               onChange={(e) => setBankDetails((s) => ({ ...s, accountName: e.target.value }))}
               required
               size="small"
+              disabled={bankSubmitting}
+              helperText="Full name as per bank records"
             />
             
             <TextField
@@ -1206,6 +1598,8 @@ export default function FreightChatPro() {
               onChange={(e) => setBankDetails((s) => ({ ...s, bankName: e.target.value }))}
               required
               size="small"
+              disabled={bankSubmitting}
+              helperText="e.g., HDFC Bank, ICICI Bank"
             />
             
             <TextField
@@ -1215,6 +1609,8 @@ export default function FreightChatPro() {
               onChange={(e) => setBankDetails((s) => ({ ...s, accountNumber: e.target.value }))}
               required
               size="small"
+              disabled={bankSubmitting}
+              type="text"
             />
             
             <TextField
@@ -1224,16 +1620,25 @@ export default function FreightChatPro() {
               onChange={(e) => setBankDetails((s) => ({ ...s, swiftOrIfsc: e.target.value }))}
               required
               size="small"
+              disabled={bankSubmitting}
+              helperText="Bank routing code"
             />
             
             <Button 
               type="submit" 
               variant="contained" 
               fullWidth
-              startIcon={<BankIcon />}
+              startIcon={bankSubmitting ? <CircularProgress size={20} color="inherit" /> : <BankIcon />}
+              disabled={bankSubmitting}
             >
-              Save Bank Details
+              {bankSubmitting ? 'Verifying...' : 'Submit & Verify Bank Details'}
             </Button>
+
+            {bankVerification && bankVerification.status !== 'verified' && (
+              <Alert severity="warning" sx={{ fontSize: '0.85rem' }}>
+                Previous verification failed. Please correct the details and resubmit.
+              </Alert>
+            )}
           </Stack>
         </form>
       </CardContent>
@@ -1398,6 +1803,7 @@ export default function FreightChatPro() {
                 {message.metadata?.type === "quote" && message.metadata.data && renderQuoteInChat(message.metadata.data)}
                 {message.metadata?.type === "invoice_request" && renderInvoiceUploadInChat()}
                 {message.metadata?.type === "bank_details_request" && showBankForm && renderBankFormInChat()}
+                {message.metadata?.type === "verification_result" && message.metadata.data && renderVerificationResult(message.metadata.data)}
                 {message.metadata?.type === "docs_upload" && showDocsUpload && renderDocsUploadInChat()}
               </Box>
 
@@ -1598,8 +2004,8 @@ export default function FreightChatPro() {
               Your Documents ({documents.length})
             </Typography>
             <Stack spacing={1}>
-              {documents.map((doc) => (
-                <Card key={doc.document_id} variant="outlined">
+              {documents.map((doc, index) => (
+                <Card key={`${doc.document_id}-${index}`} variant="outlined">
                   <CardContent sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                     <DocumentIcon color="primary" />
                     <Box sx={{ flex: 1 }}>
@@ -1754,8 +2160,8 @@ export default function FreightChatPro() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {userShipments.map((shipment) => (
-                  <TableRow key={shipment.tracking_number}>
+                {userShipments.map((shipment, index) => (
+                  <TableRow key={`${shipment.tracking_number}-${index}`}>
                     <TableCell>{shipment.tracking_number}</TableCell>
                     <TableCell>{shipment.origin} → {shipment.destination}</TableCell>
                     <TableCell>
@@ -1925,7 +2331,7 @@ export default function FreightChatPro() {
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <StorageIcon color="primary" />
-            <Typography variant="h6">Data Storage</Typography>
+            <Typography variant="h6">Data Storage & Invoice Lookup</Typography>
           </Box>
           <Button
             variant="outlined"
@@ -1940,11 +2346,207 @@ export default function FreightChatPro() {
 
         {redisLoading && <LinearProgress sx={{ mb: 2 }} />}
 
-        <Alert severity="info">
-          Real-time data from Redis. This shows all processed documents and invoices.
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Real-time data from Redis. Search invoices by number, consignee, exporter, or any field.
         </Alert>
+
+        {/* Invoice Search Section */}
+        <Paper sx={{ p: 2, mb: 3, bgcolor: "grey.50" }}>
+          <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <SearchIcon /> Invoice Lookup
+          </Typography>
+          
+          <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search by invoice number, consignee, exporter, etc..."
+              value={invoiceSearchQuery}
+              onChange={(e) => setInvoiceSearchQuery(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter") handleInvoiceLookup()
+              }}
+              InputProps={{
+                startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
+              }}
+            />
+            <Button
+              variant="contained"
+              onClick={handleInvoiceLookup}
+              disabled={invoiceSearchLoading || !invoiceSearchQuery.trim()}
+              startIcon={invoiceSearchLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+            >
+              {invoiceSearchLoading ? "Searching..." : "Search"}
+            </Button>
+          </Box>
+
+          {/* Search Results */}
+          {invoiceSearchResults.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Search Results ({invoiceSearchResults.length})
+              </Typography>
+              <Stack spacing={1.5}>
+                {invoiceSearchResults.map((invoice, index) => (
+                  <Card key={`${invoice.invoice_id}-${index}`} variant="outlined" sx={{ bgcolor: "white" }}>
+                    <CardContent>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                            <InvoiceIcon color="primary" fontSize="small" />
+                            <Typography variant="subtitle1" fontWeight="bold">
+                              {invoice.invoice_no || "N/A"}
+                            </Typography>
+                            <Chip
+                              label={invoice.status || "processed"}
+                              size="small"
+                              color={invoice.is_valid ? "success" : "warning"}
+                            />
+                          </Stack>
+
+                          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 1, mt: 1 }}>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">
+                                Filename
+                              </Typography>
+                              <Typography variant="body2">{invoice.filename}</Typography>
+                            </Box>
+
+                            {invoice.invoice_date && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Date
+                                </Typography>
+                                <Typography variant="body2">
+                                  {new Date(invoice.invoice_date).toLocaleDateString()}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {invoice.consignee_name && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Consignee
+                                </Typography>
+                                <Typography variant="body2" noWrap>
+                                  {invoice.consignee_name}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {invoice.exporter_name && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Exporter
+                                </Typography>
+                                <Typography variant="body2" noWrap>
+                                  {invoice.exporter_name}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {invoice.port_of_loading && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Port of Loading
+                                </Typography>
+                                <Typography variant="body2">{invoice.port_of_loading}</Typography>
+                              </Box>
+                            )}
+
+                            {invoice.final_destination && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Destination
+                                </Typography>
+                                <Typography variant="body2">{invoice.final_destination}</Typography>
+                              </Box>
+                            )}
+
+                            {invoice.bank_name && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Bank
+                                </Typography>
+                                <Typography variant="body2">{invoice.bank_name}</Typography>
+                              </Box>
+                            )}
+
+                            {invoice.incoterms && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Incoterms
+                                </Typography>
+                                <Typography variant="body2">{invoice.incoterms}</Typography>
+                              </Box>
+                            )}
+
+                            {/* Display calculated total amount */}
+                            {invoice.calculated_total && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Total Amount
+                                </Typography>
+                                <Typography variant="body2" fontWeight="bold" color="primary">
+                                  ${invoice.calculated_total}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+
+                          <Box sx={{ mt: 1.5, display: "flex", gap: 1, flexWrap: "wrap" }}>
+                            {invoice.completeness && (
+                              <Chip
+                                label={`${invoice.completeness}% Complete`}
+                                size="small"
+                                color={invoice.completeness >= 80 ? "success" : invoice.completeness >= 50 ? "warning" : "error"}
+                              />
+                            )}
+                            {invoice.item_count > 0 && (
+                              <Chip label={`${invoice.item_count} items`} size="small" variant="outlined" />
+                            )}
+                            {invoice.has_signature && (
+                              <Chip label="✓ Signed" size="small" color="success" variant="outlined" />
+                            )}
+                            {invoice.items && invoice.items.length > 0 && (
+                              <Chip 
+                                label={`${invoice.items.length} line items`} 
+                                size="small" 
+                                variant="outlined" 
+                                color="info"
+                              />
+                            )}
+                          </Box>
+
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                            Uploaded: {new Date(invoice.uploaded_at).toLocaleString()}
+                          </Typography>
+                        </Box>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleViewInvoiceDetails(invoice)}
+                        >
+                          View Details
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            </Box>
+          )}
+
+          {invoiceSearchQuery && invoiceSearchResults.length === 0 && !invoiceSearchLoading && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No invoices found matching "{invoiceSearchQuery}"
+            </Alert>
+          )}
+        </Paper>
       </Paper>
 
+      {/* Existing Redis Data Display */}
       <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 3 }}>
         <Box sx={{ flex: 1 }}>
           <Paper sx={{ p: 3 }}>
@@ -1956,8 +2558,8 @@ export default function FreightChatPro() {
 
             {redisInvoices.length > 0 ? (
               <Stack spacing={2} sx={{ mt: 2 }}>
-                {redisInvoices.map((invoice) => (
-                  <Card key={invoice.invoiceId} variant="outlined">
+                {redisInvoices.map((invoice, index) => (
+                  <Card key={`${invoice.invoiceId}-${index}`} variant="outlined">
                     <CardContent>
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                         <Box sx={{ flex: 1 }}>
@@ -2007,8 +2609,8 @@ export default function FreightChatPro() {
 
             {redisDocuments.length > 0 ? (
               <Stack spacing={2} sx={{ mt: 2 }}>
-                {redisDocuments.map((doc) => (
-                  <Card key={doc.documentId} variant="outlined">
+                {redisDocuments.map((doc, index) => (
+                  <Card key={`${doc.documentId}-${index}`} variant="outlined">
                     <CardContent>
                       <Box sx={{ display: "flex", alignItems: "start", gap: 2 }}>
                         <DocumentIcon color="primary" />
@@ -2036,6 +2638,308 @@ export default function FreightChatPro() {
           </Paper>
         </Box>
       </Box>
+
+      {/* Invoice Details Dialog */}
+      <Dialog
+        open={invoiceDetailsOpen}
+        onClose={() => setInvoiceDetailsOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <InvoiceIcon color="primary" />
+          Invoice Details
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedInvoice && (
+            <Stack spacing={3}>
+              {/* Header Section */}
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  {selectedInvoice.invoice_no || "N/A"}
+                </Typography>
+                <Stack direction="row" spacing={1}>
+                  <Chip
+                    label={selectedInvoice.is_valid ? "Valid" : "Invalid"}
+                    size="small"
+                    color={selectedInvoice.is_valid ? "success" : "error"}
+                  />
+                  <Chip
+                    label={`${selectedInvoice.completeness || 0}% Complete`}
+                    size="small"
+                    color={
+                      (selectedInvoice.completeness || 0) >= 80
+                        ? "success"
+                        : (selectedInvoice.completeness || 0) >= 50
+                        ? "warning"
+                        : "error"
+                    }
+                  />
+                  {selectedInvoice.has_signature && (
+                    <Chip label="Signed" size="small" color="success" icon={<CheckCircleIcon />} />
+                  )}
+                </Stack>
+              </Box>
+
+              <Divider />
+
+              {/* Basic Information */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Basic Information
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Filename
+                    </Typography>
+                    <Typography variant="body2">{selectedInvoice.filename}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Invoice Date
+                    </Typography>
+                    <Typography variant="body2">
+                      {selectedInvoice.invoice_date
+                        ? new Date(selectedInvoice.invoice_date).toLocaleDateString()
+                        : "N/A"}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Status
+                    </Typography>
+                    <Typography variant="body2">{selectedInvoice.status || "processed"}</Typography>
+                  </Box>
+                  {selectedInvoice.calculated_total && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Total Amount
+                      </Typography>
+                      <Typography variant="body2" fontWeight="bold" color="primary">
+                        ${selectedInvoice.calculated_total}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Parties Information */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Parties Information
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Consignee
+                    </Typography>
+                    <Typography variant="body2">{selectedInvoice.consignee_name || "N/A"}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Exporter
+                    </Typography>
+                    <Typography variant="body2">{selectedInvoice.exporter_name || "N/A"}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* Shipping Details */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Shipping Details
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+                  {selectedInvoice.incoterms && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Incoterms
+                      </Typography>
+                      <Typography variant="body2">{selectedInvoice.incoterms}</Typography>
+                    </Box>
+                  )}
+                  {selectedInvoice.port_of_loading && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Port of Loading
+                      </Typography>
+                      <Typography variant="body2">{selectedInvoice.port_of_loading}</Typography>
+                    </Box>
+                  )}
+                  {selectedInvoice.final_destination && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Final Destination
+                      </Typography>
+                      <Typography variant="body2">{selectedInvoice.final_destination}</Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Bank Details */}
+              {(selectedInvoice.bank_name || selectedInvoice.bank_account) && (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    Bank Details
+                  </Typography>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+                    {selectedInvoice.bank_name && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Bank Name
+                        </Typography>
+                        <Typography variant="body2">{selectedInvoice.bank_name}</Typography>
+                      </Box>
+                    )}
+                    {selectedInvoice.bank_account && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Account Number
+                        </Typography>
+                        <Typography variant="body2">{selectedInvoice.bank_account}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              )}
+
+              {/* Items */}
+              {selectedInvoice.items && selectedInvoice.items.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    Line Items ({selectedInvoice.item_count || selectedInvoice.items.length})
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Description</TableCell>
+                          <TableCell align="right">Quantity</TableCell>
+                          <TableCell align="right">Unit Price</TableCell>
+                          <TableCell align="right">Total</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {selectedInvoice.items.map((item: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell>{item.description || `Item ${idx + 1}`}</TableCell>
+                            <TableCell align="right">{item.quantity || "—"}</TableCell>
+                            <TableCell align="right">
+                              {item.unitPrice ? `$${item.unitPrice}` : "—"}
+                            </TableCell>
+                            <TableCell align="right">
+                              {item.totalPrice ? `$${item.totalPrice}` : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {/* Validation */}
+              {(selectedInvoice.validation_errors?.length > 0 ||
+                selectedInvoice.validation_warnings?.length > 0) && (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    Validation Results
+                  </Typography>
+                  {selectedInvoice.validation_errors?.length > 0 && (
+                    <Alert severity="error" sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Errors:
+                      </Typography>
+                      <ul style={{ margin: 0, paddingLeft: 20 }}>
+                        {selectedInvoice.validation_errors.map((err: string, idx: number) => (
+                          <li key={idx}>
+                            <Typography variant="body2">{err}</Typography>
+                          </li>
+                        ))}
+                      </ul>
+                    </Alert>
+                  )}
+                  {selectedInvoice.validation_warnings?.length > 0 && (
+                    <Alert severity="warning">
+                      <Typography variant="subtitle2" gutterBottom>
+                        Warnings:
+                      </Typography>
+                      <ul style={{ margin: 0, paddingLeft: 20 }}>
+                        {selectedInvoice.validation_warnings.map((warn: string, idx: number) => (
+                          <li key={idx}>
+                            <Typography variant="body2">{warn}</Typography>
+                          </li>
+                        ))}
+                      </ul>
+                    </Alert>
+                  )}
+                </Box>
+              )}
+
+              {/* Metadata */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Metadata
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Invoice ID
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
+                      {selectedInvoice.invoice_id}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Uploaded At
+                    </Typography>
+                    <Typography variant="body2">
+                      {new Date(selectedInvoice.uploaded_at).toLocaleString()}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Processed At
+                    </Typography>
+                    <Typography variant="body2">
+                      {selectedInvoice.processed_at
+                        ? new Date(selectedInvoice.processed_at).toLocaleString()
+                        : "N/A"}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* File Path */}
+              {selectedInvoice.filepath && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Storage Path
+                  </Typography>
+                  <Box
+                    sx={{
+                      p: 1,
+                      bgcolor: "grey.100",
+                      borderRadius: 1,
+                      fontFamily: "monospace",
+                      fontSize: "0.85rem",
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {selectedInvoice.filepath}
+                  </Box>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInvoiceDetailsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 

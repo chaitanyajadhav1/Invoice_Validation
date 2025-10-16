@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { redis } from '@/lib/config';
-import { extractAndValidateInvoice } from '@/lib/agent';
+import { extractAndValidateInvoice, InvoiceValidationResult } from '@/lib/agent';
 import { createInvoiceRecord, verifyInvoiceSaved } from '@/lib/database';
 
 // Force Node.js runtime
@@ -11,200 +11,86 @@ export const runtime = 'nodejs';
 // Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use service role for storage access
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 // ============================================
-// VALIDATION FUNCTION - UPDATED & FLEXIBLE
+// VALIDATION FUNCTION - ALIGNED WITH AGENT.TS
 // ============================================
-function validateInvoiceData(extractedData: any): { 
+// ============================================
+// VALIDATION FUNCTION - UPDATED TO BE MORE LENIENT
+// ============================================
+function validateInvoiceData(validationResult: InvoiceValidationResult): { 
   isValid: boolean; 
   errors: string[]; 
-  warnings: string[] 
+  warnings: string[];
+  completeness: number;
 } {
-  const errors: string[] = [];
-  const warnings: string[] = [];
+  const { extractedData, errors: extractionErrors, warnings: extractionWarnings } = validationResult;
+  const errors: string[] = [...extractionErrors];
+  const warnings: string[] = [...extractionWarnings];
 
-  // 🔍 DEBUG: Log what we received
-  console.log('[Validation] Extracted Data Structure:', {
-    invoiceNo: extractedData.invoiceNo,
-    date: extractedData.date,
-    consignee: extractedData.consignee,
-    exporter: extractedData.exporter,
-    incoterms: extractedData.incoterms,
-    bankDetails: extractedData.bankDetails
-  });
+  console.log('[Validation] Starting validation with completeness:', validationResult.completeness);
 
-  // ===== CRITICAL FIELDS (MUST HAVE) =====
-  
-  // 1. Invoice Number
-  if (!extractedData.invoiceNo || extractedData.invoiceNo === 'N/A' || extractedData.invoiceNo.trim() === '') {
-    errors.push('Invoice Number is missing or invalid');
-    console.log('[Validation] ❌ Invoice No missing');
-  } else {
-    console.log('[Validation] ✅ Invoice No:', extractedData.invoiceNo);
+  // Critical fields validation - UPDATED to be more practical
+  // Allow invoices with missing invoice number but good other data
+  const criticalFieldsMissing = [
+    !extractedData.invoiceNo,
+    !extractedData.date,
+    !extractedData.consignee?.name,
+    !extractedData.exporter?.name,
+    !extractedData.totalAmount
+  ].filter(Boolean).length;
+
+  // If more than 2 critical fields are missing, consider it invalid
+  if (criticalFieldsMissing > 2) {
+    errors.push('Too many critical fields are missing');
   }
 
-  // 2. Invoice Date
-  if (!extractedData.date || extractedData.date === 'N/A' || extractedData.date.trim() === '') {
-    errors.push('Invoice Date is missing or invalid');
-    console.log('[Validation] ❌ Date missing');
-  } else {
-    console.log('[Validation] ✅ Date:', extractedData.date);
+  // Log field status
+  console.log('[Validation] Invoice No:', extractedData.invoiceNo || 'MISSING');
+  console.log('[Validation] Date:', extractedData.date || 'MISSING');
+  console.log('[Validation] Consignee Name:', extractedData.consignee?.name || 'MISSING');
+  console.log('[Validation] Exporter Name:', extractedData.exporter?.name || 'MISSING');
+  console.log('[Validation] Total Amount:', extractedData.totalAmount || 'MISSING');
+
+  // Log shipping details
+  if (extractedData.shipmentDetails) {
+    console.log('[Validation] Shipping Details:', {
+      incoterms: extractedData.shipmentDetails.incoterms || 'N/A',
+      portOfLoading: extractedData.shipmentDetails.portOfLoading || 'N/A',
+      finalDestination: extractedData.shipmentDetails.finalDestination || 'N/A'
+    });
   }
 
-  // 3. Consignee Information
-  if (!extractedData.consignee || typeof extractedData.consignee !== 'object') {
-    errors.push('Consignee information is missing');
-    console.log('[Validation] ❌ Consignee object missing');
-  } else {
-    if (!extractedData.consignee.name || extractedData.consignee.name === 'N/A') {
-      errors.push('Consignee Name is missing');
-      console.log('[Validation] ❌ Consignee Name missing');
-    } else {
-      console.log('[Validation] ✅ Consignee Name:', extractedData.consignee.name);
-    }
-    
-    if (!extractedData.consignee.address || extractedData.consignee.address === 'N/A') {
-      warnings.push('Consignee Address is missing (recommended)');
-      console.log('[Validation] ⚠️  Consignee Address missing');
-    } else {
-      console.log('[Validation] ✅ Consignee Address exists');
-    }
+  // Log bank details
+  if (extractedData.bankDetails) {
+    console.log('[Validation] Bank Details:', {
+      bankName: extractedData.bankDetails.bankName || 'N/A',
+      usdAccount: extractedData.bankDetails.usdAccount || 'N/A',
+      swiftCode: extractedData.bankDetails.swiftCode || 'N/A'
+    });
   }
 
-  // 4. Exporter Information
-  if (!extractedData.exporter || typeof extractedData.exporter !== 'object') {
-    errors.push('Exporter information is missing');
-    console.log('[Validation] ❌ Exporter object missing');
-  } else {
-    if (!extractedData.exporter.name || extractedData.exporter.name === 'N/A') {
-      errors.push('Exporter Name is missing');
-      console.log('[Validation] ❌ Exporter Name missing');
-    } else {
-      console.log('[Validation] ✅ Exporter Name:', extractedData.exporter.name);
-    }
-    
-    if (!extractedData.exporter.address || extractedData.exporter.address === 'N/A') {
-      warnings.push('Exporter Address is missing (recommended)');
-      console.log('[Validation] ⚠️  Exporter Address missing');
-    } else {
-      console.log('[Validation] ✅ Exporter Address exists');
-    }
-  }
-
-  // ===== IMPORTANT FIELDS (STRONGLY RECOMMENDED) =====
-  
-  // 5. Incoterms
-  const validIncoterms = ['EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP', 'FAS', 'FOB', 'CFR', 'CIF'];
-  if (!extractedData.incoterms || extractedData.incoterms === 'N/A') {
-    warnings.push('Incoterms is missing (required for international shipping)');
-    console.log('[Validation] ⚠️  Incoterms missing');
-  } else {
-    const incoterm = extractedData.incoterms.toUpperCase().trim();
-    if (!validIncoterms.includes(incoterm)) {
-      warnings.push(`Invalid Incoterms: ${extractedData.incoterms}. Should be one of: ${validIncoterms.join(', ')}`);
-      console.log('[Validation] ⚠️  Invalid Incoterms:', extractedData.incoterms);
-    } else {
-      console.log('[Validation] ✅ Incoterms:', extractedData.incoterms);
-    }
-  }
-
-  // 6. Bank Details - At least Bank Name OR Account Number required
-  if (!extractedData.bankDetails || typeof extractedData.bankDetails !== 'object') {
-    warnings.push('Bank Details are missing (required for payment)');
-    console.log('[Validation] ⚠️  Bank Details object missing');
-  } else {
-    const hasBankName = extractedData.bankDetails.bankName && 
-                        extractedData.bankDetails.bankName !== 'N/A' && 
-                        extractedData.bankDetails.bankName.trim() !== '';
-    
-    const hasAccountNo = extractedData.bankDetails.accountNo && 
-                         extractedData.bankDetails.accountNo !== 'N/A' && 
-                         extractedData.bankDetails.accountNo.trim() !== '';
-    
-    // CHANGED: Now only warning if BOTH are missing
-    if (!hasBankName && !hasAccountNo) {
-      warnings.push('Bank Name and Account Number are both missing (at least one required)');
-      console.log('[Validation] ⚠️  Bank Name and Account both missing');
-    } else {
-      if (hasBankName) {
-        console.log('[Validation] ✅ Bank Name:', extractedData.bankDetails.bankName);
-      } else {
-        warnings.push('Bank Name is missing (recommended)');
-        console.log('[Validation] ⚠️  Bank Name missing');
-      }
-      
-      if (hasAccountNo) {
-        console.log('[Validation] ✅ Bank Account:', extractedData.bankDetails.accountNo);
-      } else {
-        warnings.push('Bank Account Number is missing (recommended for payment)');
-        console.log('[Validation] ⚠️  Bank Account missing');
-      }
-    }
-  }
-
-  // ===== OPTIONAL FIELDS (GOOD TO HAVE) =====
-  
-  // Shipping details
-  if (!extractedData.placeOfReceipt || extractedData.placeOfReceipt === 'N/A') {
-    console.log('[Validation] ℹ️  Place of Receipt not found');
-  } else {
-    console.log('[Validation] ✅ Place of Receipt:', extractedData.placeOfReceipt);
-  }
-  
-  if (!extractedData.portOfLoading || extractedData.portOfLoading === 'N/A') {
-    console.log('[Validation] ℹ️  Port of Loading not found');
-  } else {
-    console.log('[Validation] ✅ Port of Loading:', extractedData.portOfLoading);
-  }
-  
-  if (!extractedData.finalDestination || extractedData.finalDestination === 'N/A') {
-    console.log('[Validation] ℹ️  Final Destination not found');
-  } else {
-    console.log('[Validation] ✅ Final Destination:', extractedData.finalDestination);
-  }
-
-  // Items
-  if (!extractedData.itemList || extractedData.itemList.length === 0) {
-    warnings.push('No line items found in invoice');
-    console.log('[Validation] ⚠️  No items found');
-  } else {
-    console.log('[Validation] ✅ Items found:', extractedData.itemList.length);
-  }
-
-  // Total Amount
-  if (!extractedData.totalAmount) {
-    console.log('[Validation] ℹ️  Total amount not detected');
-  } else {
-    console.log('[Validation] ✅ Total Amount:', extractedData.totalAmount);
-  }
-
-  // Signature
-  if (!extractedData.signature) {
-    console.log('[Validation] ℹ️  Signature not detected');
-  } else {
-    console.log('[Validation] ✅ Signature detected');
-  }
-
-  // ===== FINAL SUMMARY =====
   console.log('[Validation] Summary:', {
     isValid: errors.length === 0,
     errorCount: errors.length,
     warningCount: warnings.length,
-    errors: errors.length > 0 ? errors : 'None'
+    completeness: validationResult.completeness,
+    criticalFieldsMissing
   });
 
   return {
     isValid: errors.length === 0,
     errors,
-    warnings
+    warnings,
+    completeness: validationResult.completeness
   };
 }
 
-// Helper function to normalize date format (FIXED to handle DD.MM.YYYY)
-function normalizeDateFormat(dateStr: string): string {
-  if (!dateStr || dateStr === 'N/A') return 'N/A';
+// Helper function to normalize date format
+function normalizeDateFormat(dateStr: string | null): string | null {
+  if (!dateStr) return null;
   
   try {
     const patterns = [
@@ -265,7 +151,7 @@ function normalizeDateFormat(dateStr: string): string {
     console.error('[Date Normalize] Error parsing date:', dateStr, error);
   }
   
-  return 'N/A';
+  return null;
 }
 
 // PDF parsing using pdf2json
@@ -304,6 +190,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File;
     const threadId = formData.get('threadId') as string;
     const userId = formData.get('userId') as string;
+    const organizationId = formData.get('organizationId') as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -343,7 +230,7 @@ export async function POST(request: NextRequest) {
     console.log('[Upload] Uploading to Supabase Storage...');
     
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('invoices') // Bucket name
+      .from('invoices')
       .upload(`${userId || 'anonymous'}/${filename}`, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
@@ -358,11 +245,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Upload] File uploaded to Supabase (public storage):', uploadData.path);
+    console.log('[Upload] File uploaded to Supabase:', uploadData.path);
 
-    // ============================================
-    // GENERATE PUBLIC URL
-    // ============================================
+    // Generate public URL
     const { data: { publicUrl } } = supabase.storage
       .from('invoices')
       .getPublicUrl(uploadData.path);
@@ -394,16 +279,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ============================================
-    // EXTRACT INVOICE DATA USING AI
+    // EXTRACT INVOICE DATA USING AGENT.TS
     // ============================================
-    console.log('[Upload] Starting invoice extraction...');
-    const aiExtraction = await extractAndValidateInvoice(extractedText);
+    console.log('[Upload] Starting invoice extraction with agent.ts...');
+    const aiExtraction: InvoiceValidationResult = extractAndValidateInvoice(extractedText);
     
     // ============================================
-    // VALIDATE DATA BEFORE STORING
+    // VALIDATE EXTRACTED DATA
     // ============================================
     console.log('[Upload] Validating extracted invoice data...');
-    const validation = validateInvoiceData(aiExtraction.extractedData);
+    const validation = validateInvoiceData(aiExtraction);
     
     if (!validation.isValid) {
       console.log('[Upload] Validation FAILED - Removing file from storage');
@@ -418,16 +303,12 @@ export async function POST(request: NextRequest) {
           isValid: false,
           errors: validation.errors,
           warnings: validation.warnings,
+          completeness: validation.completeness,
           extractedData: {
-            invoiceNo: aiExtraction.extractedData.invoiceNo || 'N/A',
-            date: aiExtraction.extractedData.date || 'N/A',
-            consignee: aiExtraction.extractedData.consignee?.name || 'N/A',
-            exporter: aiExtraction.extractedData.exporter?.name || 'N/A',
-            incoterms: aiExtraction.extractedData.incoterms || 'N/A',
-            bankDetails: {
-              bankName: aiExtraction.extractedData.bankDetails?.bankName || 'N/A',
-              accountNo: aiExtraction.extractedData.bankDetails?.accountNo || 'N/A'
-            }
+            invoiceNo: aiExtraction.extractedData.invoiceNo || null,
+            date: aiExtraction.extractedData.date || null,
+            consignee: aiExtraction.extractedData.consignee?.name || null,
+            exporter: aiExtraction.extractedData.exporter?.name || null
           }
         },
         message: 'Invoice contains missing or invalid required fields. Please correct and reupload.'
@@ -439,46 +320,58 @@ export async function POST(request: NextRequest) {
     // ============================================
     console.log('[Upload] Validation PASSED - Storing invoice metadata...');
 
-    const normalizedDate = normalizeDateFormat(aiExtraction.extractedData.date || '');
-    console.log(`[Upload] Date normalized: ${aiExtraction.extractedData.date} -> ${normalizedDate}`);
+    const { extractedData } = aiExtraction;
+    const normalizedDate = normalizeDateFormat(extractedData.date);
+    console.log(`[Upload] Date normalized: ${extractedData.date} -> ${normalizedDate}`);
 
-    // Prepare invoice data for database
-    const invoiceData: Record<string, string | number | boolean | null> = {
+    // Prepare invoice data for database (aligned with database.ts schema)
+    const invoiceData = {
       invoice_id: invoiceId,
+      user_id: userId || 'anonymous',
+      organization_id: organizationId || null,
+      thread_id: threadId,
       filename: file.name,
-      file_url: fileUrl,
       filepath: storagePath,
       uploaded_at: new Date().toISOString(),
       processed_at: new Date().toISOString(),
       status: 'valid',
-      user_id: userId || 'anonymous',
-      thread_id: threadId,
       
-      // Extracted data
-      invoice_no: aiExtraction.extractedData.invoiceNo || 'N/A',
-      invoice_date: normalizedDate === 'N/A' ? null : normalizedDate,
-      consignee_name: aiExtraction.extractedData.consignee?.name || 'N/A',
-      consignee_address: aiExtraction.extractedData.consignee?.address || 'N/A',
-      exporter_name: aiExtraction.extractedData.exporter?.name || 'N/A',
-      exporter_address: aiExtraction.extractedData.exporter?.address || 'N/A',
-      incoterms: aiExtraction.extractedData.incoterms || 'N/A',
-      bank_name: aiExtraction.extractedData.bankDetails?.bankName || 'N/A',
-      bank_account: aiExtraction.extractedData.bankDetails?.accountNo || 'N/A',
-      place_of_receipt: aiExtraction.extractedData.placeOfReceipt || 'N/A',
-      port_of_loading: aiExtraction.extractedData.portOfLoading || 'N/A',
-      final_destination: aiExtraction.extractedData.finalDestination || 'N/A',
+      // Extracted data from CommercialInvoiceData interface
+      invoice_no: extractedData.invoiceNo,
+      invoice_date: normalizedDate,
+      
+      // Consignee information
+      consignee_name: extractedData.consignee?.name || null,
+      consignee_address: extractedData.consignee?.address || null,
+      
+      // Exporter information
+      exporter_name: extractedData.exporter?.name || null,
+      exporter_address: extractedData.exporter?.address || null,
+      
+      // Shipping details
+      incoterms: extractedData.shipmentDetails?.incoterms || null,
+      place_of_receipt: extractedData.shipmentDetails?.placeOfReceipt || null,
+      port_of_loading: extractedData.shipmentDetails?.portOfLoading || null,
+      final_destination: extractedData.shipmentDetails?.finalDestination || null,
+      
+      // Bank details
+      bank_name: extractedData.bankDetails?.bankName || null,
+      bank_account: extractedData.bankDetails?.usdAccount || extractedData.bankDetails?.euroAccount || null,
       
       // Validation results
       is_valid: true,
-      completeness: 100,
-      validation_errors: JSON.stringify([]),
-      validation_warnings: JSON.stringify(validation.warnings),
-      item_count: aiExtraction.extractedData.itemList?.length || 0,
-      items: JSON.stringify(aiExtraction.extractedData.itemList || []),
-      has_signature: aiExtraction.extractedData.signature,
+      completeness: validation.completeness,
+      validation_errors: validation.errors,
+      validation_warnings: validation.warnings,
       
-      // Store raw text for reference (first 5000 chars)
-      extracted_text: extractedText.substring(0, 5000)
+      // Item information
+      item_count: extractedData.itemList?.length || 0,
+      items: extractedData.itemList || [],
+      
+      // Additional fields
+      has_signature: extractedData.signature,
+      extracted_text: extractedText.substring(0, 5000),
+      document_type: 'invoice'
     };
 
     console.log('[Upload] Invoice Data prepared:', {
@@ -487,11 +380,17 @@ export async function POST(request: NextRequest) {
       invoice_date: invoiceData.invoice_date,
       filepath: invoiceData.filepath,
       thread_id: invoiceData.thread_id,
-      status: invoiceData.status
+      organization_id: invoiceData.organization_id,
+      completeness: invoiceData.completeness
     });
 
     // Store in Redis hash for fast access
-    await redis.hset(`invoice:${invoiceId}`, invoiceData);
+    await redis.hset(`invoice:${invoiceId}`, {
+      ...invoiceData,
+      items: JSON.stringify(invoiceData.items),
+      validation_errors: JSON.stringify(invoiceData.validation_errors),
+      validation_warnings: JSON.stringify(invoiceData.validation_warnings)
+    });
     console.log(`[Upload] Stored invoice in Redis: invoice:${invoiceId}`);
 
     // ============================================
@@ -502,7 +401,7 @@ export async function POST(request: NextRequest) {
       const savedInvoice = await createInvoiceRecord(invoiceData);
       console.log('[Upload] Invoice saved to database successfully:', savedInvoice?.invoice_id);
       
-      // ✅ VERIFY THE SAVE
+      // Verify the save
       const verification = await verifyInvoiceSaved(invoiceId);
       if (!verification) {
         console.error('[Upload] ⚠️  CRITICAL: Invoice not found after save!');
@@ -518,26 +417,10 @@ export async function POST(request: NextRequest) {
         details: dbError.details
       });
       
-      // Handle duplicate invoice number
       if (dbError.code === '23505' && dbError.message?.includes('invoice_no')) {
         console.warn('[Upload] ⚠️  Duplicate invoice number:', invoiceData.invoice_no);
-        validation.warnings.push(`Invoice number ${invoiceData.invoice_no} already exists in the system. This upload is stored in cache only.`);
-      }
-      // Handle missing filepath
-      else if (dbError.code === '23502' && dbError.message?.includes('filepath')) {
-        console.error('[Upload] ❌ FILEPATH IS MISSING! Current value:', invoiceData.filepath);
-        
-        // Delete uploaded file
-        await supabase.storage.from('invoices').remove([uploadData.path]);
-        
-        return NextResponse.json({
-          success: false,
-          error: 'Database configuration error: filepath missing',
-          details: 'The storage path is not being saved correctly'
-        }, { status: 500 });
-      }
-      // Other database errors
-      else {
+        validation.warnings.push(`Invoice number ${invoiceData.invoice_no} already exists in the system.`);
+      } else {
         validation.warnings.push('Invoice stored in cache but database save failed');
       }
     }
@@ -552,11 +435,18 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload] Added invoice to user: user:${userId}:invoices`);
     }
 
+    // Add to organization's invoice list in Redis
+    if (organizationId) {
+      await redis.sadd(`org:${organizationId}:invoices`, invoiceId);
+      console.log(`[Upload] Added invoice to organization: org:${organizationId}:invoices`);
+    }
+
     console.log(`[Upload] Invoice processing complete:`, {
       invoiceId,
       threadId,
       fileUrl,
       isValid: true,
+      completeness: validation.completeness,
       warnings: validation.warnings.length
     });
 
@@ -567,26 +457,45 @@ export async function POST(request: NextRequest) {
       fileUrl,
       validation: {
         isValid: true,
-        completeness: 100,
+        completeness: validation.completeness,
         errors: [],
         warnings: validation.warnings,
         extractedData: {
-          invoiceNo: aiExtraction.extractedData.invoiceNo,
+          invoiceNo: extractedData.invoiceNo,
           date: normalizedDate,
-          consignee: aiExtraction.extractedData.consignee?.name,
-          exporter: aiExtraction.extractedData.exporter?.name,
-          incoterms: aiExtraction.extractedData.incoterms,
+          referenceNo: extractedData.referenceNo,
+          proformaInvoiceNo: extractedData.proformaInvoiceNo,
+          consignee: {
+            name: extractedData.consignee?.name,
+            address: extractedData.consignee?.address,
+            email: extractedData.consignee?.email,
+            phone: extractedData.consignee?.phone
+          },
+          exporter: {
+            name: extractedData.exporter?.name,
+            address: extractedData.exporter?.address,
+            email: extractedData.exporter?.email,
+            pan: extractedData.exporter?.pan,
+            gstin: extractedData.exporter?.gstin,
+            iec: extractedData.exporter?.iec
+          },
           bankDetails: {
-            bankName: aiExtraction.extractedData.bankDetails?.bankName,
-            accountNo: aiExtraction.extractedData.bankDetails?.accountNo
+            bankName: extractedData.bankDetails?.bankName,
+            usdAccount: extractedData.bankDetails?.usdAccount,
+            swiftCode: extractedData.bankDetails?.swiftCode,
+            ifscCode: extractedData.bankDetails?.ifscCode
           },
-          route: {
-            placeOfReceipt: aiExtraction.extractedData.placeOfReceipt,
-            portOfLoading: aiExtraction.extractedData.portOfLoading,
-            finalDestination: aiExtraction.extractedData.finalDestination
+          shipmentDetails: {
+            incoterms: extractedData.shipmentDetails?.incoterms,
+            portOfLoading: extractedData.shipmentDetails?.portOfLoading,
+            portOfDischarge: extractedData.shipmentDetails?.portOfDischarge,
+            finalDestination: extractedData.shipmentDetails?.finalDestination,
+            countryOfOrigin: extractedData.shipmentDetails?.countryOfOrigin
           },
-          itemCount: aiExtraction.extractedData.itemList?.length || 0,
-          signature: aiExtraction.extractedData.signature
+          itemCount: extractedData.itemList?.length || 0,
+          totalAmount: extractedData.totalAmount,
+          currency: extractedData.currency,
+          signature: extractedData.signature
         }
       },
       message: 'Invoice validated and stored successfully'
