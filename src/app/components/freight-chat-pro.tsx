@@ -84,6 +84,15 @@ import {
   Verified as VerifiedIcon,
   Calculate as CalculateIcon,
 } from "@mui/icons-material"
+import TopAppBar from "./freight-chat-pro/TopAppBar"
+import NavDrawer from "./freight-chat-pro/NavDrawer"
+import UserTabs from "./freight-chat-pro/UserTabs"
+import AuthModal from "./freight-chat-pro/AuthModal"
+import AgentSection from "./freight-chat-pro/AgentSection"
+import DocumentsSection from "./freight-chat-pro/DocumentsSection"
+import TrackingSection from "./freight-chat-pro/TrackingSection"
+import DashboardSection from "./freight-chat-pro/DashboardSection"
+import DataSection from "./freight-chat-pro/DataSection"
 
 // Types
 interface Organization {
@@ -1708,1345 +1717,180 @@ const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState<boolean>(false)
     </Card>
   )
 
-  // Main Agent Chat Render
-  const renderAgentChat = () => (
-    <Box sx={{ display: "flex", flexDirection: { xs: "column", lg: "row" }, gap: 3, height: "calc(100vh - 250px)" }}>
-      {/* Chat Area */}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <Paper 
-          elevation={3}
-          sx={{ 
-            p: 3, 
-            mb: 2, 
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-            color: "white",
-            borderRadius: 3
-          }}
-        >
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-            <Avatar sx={{ bgcolor: "rgba(255,255,255,0.3)", width: 48, height: 48 }}>
-              <ChatIcon />
-            </Avatar>
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
-                AI Shipping Agent
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                Complete your booking step-by-step in chat
-              </Typography>
-            </Box>
-          </Stack>
+  // (Agent chat UI moved into AgentSection component)
 
-          {agentThreadId && (
-            <Stepper activeStep={workflowStep} alternativeLabel sx={{ bgcolor: "transparent" }}>
-              {workflowSteps.map((label) => (
-                <Step key={label}>
-                  <StepLabel sx={{ 
-                    "& .MuiStepLabel-label": { color: "rgba(255,255,255,0.7)" },
-                    "& .MuiStepLabel-label.Mui-active": { color: "white" },
-                    "& .MuiStepLabel-label.Mui-completed": { color: "white" }
-                  }}>
-                    {label}
-                  </StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-          )}
-        </Paper>
+  // (Documents UI moved into DocumentsSection component)
 
-        {/* Messages Container */}
-        <Paper 
-          sx={{ 
-            flex: 1, 
-            p: 2, 
-            overflow: "auto", 
-            bgcolor: "grey.50",
-            borderRadius: 2,
-            maxHeight: "calc(100vh - 450px)"
-          }}
-        >
-          {agentMessages.map((message, index) => (
-            <Box
-              key={index}
-              sx={{
-                display: "flex",
-                justifyContent: message.role === "user" ? "flex-end" : "flex-start",
-                mb: 2,
-              }}
-            >
-              {message.role !== "user" && (
-                <Avatar sx={{ mr: 1, bgcolor: "primary.main" }}>
-                  <ChatIcon />
-                </Avatar>
-              )}
-              
-              <Box sx={{ maxWidth: message.metadata?.type ? "100%" : "70%" }}>
-                {!message.metadata?.type && (
-                  <Paper
-                    sx={{
-                      p: 2,
-                      bgcolor: message.role === "user" ? "primary.main" : message.role === "system" ? "warning.light" : "white",
-                      color: message.role === "user" ? "white" : "text.primary",
-                      borderRadius: 2,
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-                      {message.content}
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.7, display: "block", mt: 1 }}>
-                      {new Date(message.timestamp).toLocaleTimeString()}
-                    </Typography>
-                  </Paper>
-                )}
+  // (Tracking UI moved into TrackingSection component)
 
-                {message.metadata?.type === "quote_form" && showQuoteForm && renderQuoteFormInChat()}
-                {message.metadata?.type === "quote" && message.metadata.data && renderQuoteInChat(message.metadata.data)}
-                {message.metadata?.type === "invoice_request" && renderInvoiceUploadInChat()}
-                {message.metadata?.type === "bank_details_request" && showBankForm && renderBankFormInChat()}
-                {message.metadata?.type === "verification_result" && message.metadata.data && renderVerificationResult(message.metadata.data)}
-                {message.metadata?.type === "docs_upload" && showDocsUpload && renderDocsUploadInChat()}
-              </Box>
+  // (Dashboard UI moved into DashboardSection component)
 
-              {message.role === "user" && (
-                <Avatar sx={{ ml: 1, bgcolor: "secondary.main" }}>
-                  <PersonIcon />
-                </Avatar>
-              )}
-            </Box>
-          ))}
-          
-          {agentLoading && (
-            <Box sx={{ display: "flex", justifyContent: "flex-start", mb: 2 }}>
-              <Avatar sx={{ mr: 1, bgcolor: "primary.main" }}>
-                <ChatIcon />
-              </Avatar>
-              <Paper sx={{ p: 2 }}>
-                <CircularProgress size={20} />
-              </Paper>
-            </Box>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </Paper>
+  // (Data UI moved into DataSection component)
 
-        {/* Input Area */}
-        <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Type your message..."
-            value={agentInput}
-            onChange={(e) => setAgentInput(e.target.value)}
-            onKeyPress={handleAgentInputKeyPress}
-            disabled={agentLoading || !agentThreadId}
-            multiline
-            maxRows={3}
-            size="small"
-          />
-          <Button
-            variant="contained"
-            onClick={sendAgentMessage}
-            disabled={agentLoading || !agentInput.trim() || !agentThreadId}
-            sx={{ minWidth: 60 }}
-          >
-            <SendIcon />
-          </Button>
-        </Box>
+  // extracted components moved to ./freight-chat-pro/* files
 
-        {!agentThreadId && (
-          <Button
-            variant="contained"
-            size="large"
-            onClick={startAgent}
-            disabled={agentLoading}
-            startIcon={<ChatIcon />}
-            sx={{ mt: 2 }}
-            fullWidth
-          >
-            {agentLoading ? "Starting..." : "Start New Shipment"}
-          </Button>
-        )}
-      </Box>
+  const handleShareInvoice = async (invoiceId: string) => {
+    if (!token || !user) {
+      setSnackbar({
+        open: true,
+        message: "Please login to share invoices",
+        severity: "warning"
+      });
+      return;
+    }
 
-      {/* Right Sidebar - Shipment Summary */}
-      <Box sx={{ width: { xs: "100%", lg: 350 }, flexShrink: 0 }}>
-        <Paper sx={{ p: 3, position: "sticky", top: 16 }}>
-          <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <ShippingIcon color="primary" />
-            Shipment Summary
-          </Typography>
-          
-          <Divider sx={{ my: 2 }} />
-          
-          <Stack spacing={2}>
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="body2" color="text.secondary">From</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {quoteFormData.origin || "—"}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="body2" color="text.secondary">To</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {quoteFormData.destination || "—"}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="body2" color="text.secondary">Mode</Typography>
-              <Chip 
-                label={quoteFormData.mode.toUpperCase()} 
-                size="small" 
-                color="primary"
-                variant="outlined"
-              />
-            </Box>
-            
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="body2" color="text.secondary">Weight</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {quoteFormData.weightKg} kg
-              </Typography>
-            </Box>
+    try {
+      const response = await fetch(`${API_BASE}/invoice/share`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          invoiceId,
+          sharedBy: user.userId
+        })
+      });
 
-            <Divider />
+      const data = await response.json();
 
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="body2" color="text.secondary">Estimate</Typography>
-              <Typography variant="h6" color="primary" fontWeight="bold">
-                {quote ? `${quote.totalEstimate}` : "—"}
-              </Typography>
-            </Box>
-            
-            {quote && (
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                <Typography variant="body2" color="text.secondary">Transit</Typography>
-                <Typography variant="body2" fontWeight="medium">
-                  {quote.recommendedQuote.transitTime}
-                </Typography>
-              </Box>
-            )}
-
-            <Divider />
-
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Typography variant="body2" color="text.secondary">Invoice</Typography>
-              <Chip 
-                label={sessionInvoices.length > 0 ? sessionInvoices[0].filename : "Not uploaded"} 
-                size="small" 
-                color={sessionInvoices.length > 0 ? "success" : "default"}
-                icon={sessionInvoices.length > 0 ? <CheckCircleIcon /> : undefined}
-              />
-            </Box>
-            
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Typography variant="body2" color="text.secondary">Bank Details</Typography>
-              <Chip 
-                label={bankDetails.accountName ? "Provided" : "Pending"} 
-                size="small" 
-                color={bankDetails.accountName ? "success" : "default"}
-                icon={bankDetails.accountName ? <CheckCircleIcon /> : undefined}
-              />
-            </Box>
-            
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Typography variant="body2" color="text.secondary">Other Docs</Typography>
-              <Badge badgeContent={otherDocs.length} color="primary">
-                <DocumentIcon />
-              </Badge>
-            </Box>
-
-            <Divider />
-
-            <Box sx={{ textAlign: "center", py: 2 }}>
-              <Typography variant="caption" color="text.secondary">
-                Step {workflowStep + 1} of {workflowSteps.length}
-              </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={(workflowStep / (workflowSteps.length - 1)) * 100} 
-                sx={{ mt: 1 }}
-              />
-            </Box>
-          </Stack>
-        </Paper>
-      </Box>
-    </Box>
-  )
-
-  // Document Management Tab
-  const renderDocumentChat = () => (
-    <Box>
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Document Management
-        </Typography>
-        <input
-          type="file"
-          accept=".pdf"
-          ref={fileInputRef}
-          onChange={handleDocumentUpload}
-          style={{ display: "none" }}
-        />
-        <Button
-          variant="contained"
-          startIcon={<CloudUploadIcon />}
-          onClick={() => fileInputRef.current?.click()}
-          disabled={documentUploading}
-        >
-          {documentUploading ? "Uploading..." : "Upload PDF Document"}
-        </Button>
-
-        {documents.length > 0 ? (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Your Documents ({documents.length})
-            </Typography>
-            <Stack spacing={1}>
-              {documents.map((doc, index) => (
-                <Card key={`${doc.document_id}-${index}`} variant="outlined">
-                  <CardContent sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <DocumentIcon color="primary" />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body1">{doc.filename}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
-                      </Typography>
-                    </Box>
-                    <Chip label={doc.strategy} size="small" />
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          </Box>
-        ) : (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            No documents uploaded yet. Upload a PDF to start chatting with your documents.
-          </Alert>
-        )}
-      </Paper>
-
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Chat with Documents
-        </Typography>
-        <TextField
-          fullWidth
-          variant="outlined"
-          placeholder={
-            documents.length > 0
-              ? "Ask a question about your documents..."
-              : "Upload a PDF first..."
-          }
-          value={documentChatInput}
-          onChange={(e) => setDocumentChatInput(e.target.value)}
-          onKeyPress={(e) => {
-            if (e.key === "Enter") handleDocumentChat()
-          }}
-          disabled={documentChatLoading}
-          sx={{ mb: 2 }}
-        />
-        <Button
-          variant="contained"
-          onClick={handleDocumentChat}
-          disabled={documentChatLoading || !documentChatInput.trim() || documents.length === 0}
-          fullWidth
-        >
-          {documentChatLoading ? "Thinking..." : documents.length === 0 ? "Upload a PDF first" : "Ask Question"}
-        </Button>
-
-        {documentChatResponse && (
-          <Paper sx={{ p: 2, mt: 2, bgcolor: "grey.50" }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-              <Typography variant="subtitle2">Answer</Typography>
-              <Tooltip title="Copy answer">
-                <IconButton
-                  size="small"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(documentChatResponse)
-                      setSnackbar({ open: true, message: "Copied!", severity: "success" })
-                    } catch {
-                      setSnackbar({ open: true, message: "Copy failed", severity: "error" })
-                    }
-                  }}
-                >
-                  <CopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-            <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
-              {documentChatResponse}
-            </Typography>
-          </Paper>
-        )}
-      </Paper>
-    </Box>
-  )
-
-  // Tracking Tab
-  const renderTracking = () => (
-    <Box>
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Track Shipment
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Enter tracking number..."
-            value={trackingNumber}
-            onChange={(e) => setTrackingNumber(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === "Enter") handleTrackShipment()
-            }}
-            size="small"
-          />
-          <Button
-            variant="contained"
-            onClick={handleTrackShipment}
-            disabled={trackingLoading || !trackingNumber.trim()}
-          >
-            {trackingLoading ? <CircularProgress size={24} /> : "Track"}
-          </Button>
-        </Box>
-
-        {trackingInfo && (
-          <Card sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                📦 {trackingInfo.trackingNumber}
-              </Typography>
-              <Stack spacing={2}>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" color="text.secondary">Status</Typography>
-                  <Chip label={trackingInfo.status} color="primary" size="small" />
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" color="text.secondary">Origin</Typography>
-                  <Typography variant="body2">{trackingInfo.origin}</Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" color="text.secondary">Destination</Typography>
-                  <Typography variant="body2">{trackingInfo.destination}</Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography variant="body2" color="text.secondary">Est. Delivery</Typography>
-                  <Typography variant="body2">
-                    {new Date(trackingInfo.estimatedDelivery).toLocaleDateString()}
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        )}
-      </Paper>
-
-      {user && userShipments.length > 0 && (
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Your Shipments
-          </Typography>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Tracking #</TableCell>
-                  <TableCell>Route</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Created</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {userShipments.map((shipment, index) => (
-                  <TableRow key={`${shipment.tracking_number}-${index}`}>
-                    <TableCell>{shipment.tracking_number}</TableCell>
-                    <TableCell>{shipment.origin} → {shipment.destination}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={shipment.status}
-                        size="small"
-                        color={
-                          shipment.status === "delivered" ? "success" :
-                          shipment.status === "pickup_scheduled" ? "primary" : "default"
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>{new Date(shipment.created_at).toLocaleDateString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
-      )}
-    </Box>
-  )
-
-  // Dashboard Tab
-  const renderDashboard = () => (
-    <Box>
-      {organization && (
-        <Paper 
-          sx={{ 
-            p: 3, 
-            mb: 3, 
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-            color: "white",
-            borderRadius: 3
-          }}
-        >
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Avatar sx={{ bgcolor: "rgba(255,255,255,0.3)", width: 56, height: 56 }}>
-              <BusinessIcon sx={{ fontSize: 32 }} />
-            </Avatar>
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
-                {organization.name}
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                {formatUserRole(user?.role)} • {organization.industry || "Logistics"}
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
-      )}
-
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 3 }}>
-        {[
-          { label: "Documents", value: documents.length, icon: <DocumentIcon />, color: "#667eea" },
-          { label: "Active Shipments", value: userShipments.filter(s => !["delivered", "returned"].includes(s.status)).length, icon: <ShippingIcon />, color: "#764ba2" },
-          { label: "Invoices", value: redisInvoices.length, icon: <InvoiceIcon />, color: "#f093fb" },
-          { label: "Total Shipments", value: userShipments.length, icon: <TrackIcon />, color: "#4facfe" },
-        ].map((stat, idx) => (
-          <Box key={idx} sx={{ flex: "1 1 200px", minWidth: 200 }}>
-            <Card sx={{ 
-              background: `linear-gradient(135deg, ${stat.color} 0%, ${stat.color}99 100%)`,
-              color: "white"
-            }}>
-              <CardContent>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Box>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                      {stat.label}
-                    </Typography>
-                    <Typography variant="h3" fontWeight="bold">
-                      {stat.value}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ opacity: 0.5, fontSize: 48 }}>
-                    {stat.icon}
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Box>
-        ))}
-      </Box>
-
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Quick Actions
-          </Typography>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
-            {[
-              { icon: <ChatIcon />, label: "Start Shipping Agent", action: () => { setActiveTab(0); if (!agentThreadId) startAgent(); }, color: "primary" },
-              { icon: <UploadIcon />, label: "Upload Document", action: () => fileInputRef.current?.click(), color: "secondary" },
-              { icon: <TrackIcon />, label: "Track Shipment", action: () => setActiveTab(2), color: "info" },
-              { icon: <StorageIcon />, label: "View Data", action: () => setActiveTab(4), color: "success" },
-            ].map((action, idx) => (
-              <Box key={idx} sx={{ flex: "1 1 200px" }}>
-                <Button
-                  variant={idx === 0 ? "contained" : "outlined"}
-                  fullWidth
-                  startIcon={action.icon}
-                  onClick={action.action}
-                  color={action.color as any}
-                  sx={{ height: 60 }}
-                >
-                  {action.label}
-                </Button>
-              </Box>
-            ))}
-          </Box>
-        </CardContent>
-      </Card>
-
-      {organization && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <BusinessIcon /> Organization Details
-            </Typography>
-            <Divider sx={{ my: 2 }} />
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-              <Box sx={{ flex: "1 1 45%", minWidth: 200 }}>
-                <Typography variant="body2" color="text.secondary">Organization ID</Typography>
-                <Typography variant="body1" fontWeight="medium">{organization.organizationId}</Typography>
-              </Box>
-              <Box sx={{ flex: "1 1 45%", minWidth: 200 }}>
-                <Typography variant="body2" color="text.secondary">Status</Typography>
-                <Chip
-                  label={organization.isActive ? "Active" : "Inactive"}
-                  color={organization.isActive ? "success" : "error"}
-                  size="small"
-                />
-              </Box>
-              {organization.email && (
-                <Box sx={{ flex: "1 1 45%", minWidth: 200 }}>
-                  <Typography variant="body2" color="text.secondary">Email</Typography>
-                  <Typography variant="body1">{organization.email}</Typography>
-                </Box>
-              )}
-              {organization.phone && (
-                <Box sx={{ flex: "1 1 45%", minWidth: 200 }}>
-                  <Typography variant="body2" color="text.secondary">Phone</Typography>
-                  <Typography variant="body1">{organization.phone}</Typography>
-                </Box>
-              )}
-              {organization.address && (
-                <Box sx={{ flex: "1 1 100%" }}>
-                  <Typography variant="body2" color="text.secondary">Address</Typography>
-                  <Typography variant="body1">{organization.address}</Typography>
-                </Box>
-              )}
-              <Box sx={{ flex: "1 1 45%", minWidth: 200 }}>
-                <Typography variant="body2" color="text.secondary">Created</Typography>
-                <Typography variant="body1">{new Date(organization.createdAt).toLocaleDateString()}</Typography>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      )}
-    </Box>
-  )
-
-  // Data Storage Tab
-  const renderRedisData = () => (
-    <Box>
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <StorageIcon color="primary" />
-            <Typography variant="h6">Data Storage & Invoice Lookup</Typography>
-          </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={refreshRedisData}
-            disabled={redisLoading}
-            size="small"
-          >
-            Refresh
-          </Button>
-        </Box>
-
-        {redisLoading && <LinearProgress sx={{ mb: 2 }} />}
-
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Real-time data from Redis. Search invoices by number, consignee, exporter, or any field.
-        </Alert>
-
-        {/* Invoice Search Section */}
-        <Paper sx={{ p: 2, mb: 3, bgcolor: "grey.50" }}>
-          <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <SearchIcon /> Invoice Lookup
-          </Typography>
-          
-          <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Search by invoice number, consignee, exporter, etc..."
-              value={invoiceSearchQuery}
-              onChange={(e) => setInvoiceSearchQuery(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === "Enter") handleInvoiceLookup()
-              }}
-              InputProps={{
-                startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
-              }}
-            />
-            <Button
-              variant="contained"
-              onClick={handleInvoiceLookup}
-              disabled={invoiceSearchLoading || !invoiceSearchQuery.trim()}
-              startIcon={invoiceSearchLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
-            >
-              {invoiceSearchLoading ? "Searching..." : "Search"}
-            </Button>
-          </Box>
-
-          {/* Search Results */}
-          {invoiceSearchResults.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Search Results ({invoiceSearchResults.length})
-              </Typography>
-              <Stack spacing={1.5}>
-                {invoiceSearchResults.map((invoice, index) => (
-                  <Card key={`${invoice.invoice_id}-${index}`} variant="outlined" sx={{ bgcolor: "white" }}>
-                    <CardContent>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                            <InvoiceIcon color="primary" fontSize="small" />
-                            <Typography variant="subtitle1" fontWeight="bold">
-                              {invoice.invoice_no || "N/A"}
-                            </Typography>
-                            <Chip
-                              label={invoice.status || "processed"}
-                              size="small"
-                              color={invoice.is_valid ? "success" : "warning"}
-                            />
-                          </Stack>
-
-                          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 1, mt: 1 }}>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary">
-                                Filename
-                              </Typography>
-                              <Typography variant="body2">{invoice.filename}</Typography>
-                            </Box>
-
-                            {invoice.invoice_date && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Date
-                                </Typography>
-                                <Typography variant="body2">
-                                  {new Date(invoice.invoice_date).toLocaleDateString()}
-                                </Typography>
-                              </Box>
-                            )}
-
-                            {invoice.consignee_name && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Consignee
-                                </Typography>
-                                <Typography variant="body2" noWrap>
-                                  {invoice.consignee_name}
-                                </Typography>
-                              </Box>
-                            )}
-
-                            {invoice.exporter_name && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Exporter
-                                </Typography>
-                                <Typography variant="body2" noWrap>
-                                  {invoice.exporter_name}
-                                </Typography>
-                              </Box>
-                            )}
-
-                            {invoice.port_of_loading && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Port of Loading
-                                </Typography>
-                                <Typography variant="body2">{invoice.port_of_loading}</Typography>
-                              </Box>
-                            )}
-
-                            {invoice.final_destination && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Destination
-                                </Typography>
-                                <Typography variant="body2">{invoice.final_destination}</Typography>
-                              </Box>
-                            )}
-
-                            {invoice.bank_name && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Bank
-                                </Typography>
-                                <Typography variant="body2">{invoice.bank_name}</Typography>
-                              </Box>
-                            )}
-
-                            {invoice.incoterms && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Incoterms
-                                </Typography>
-                                <Typography variant="body2">{invoice.incoterms}</Typography>
-                              </Box>
-                            )}
-
-                            {/* Display calculated total amount */}
-                            {invoice.calculated_total && (
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  Total Amount
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold" color="primary">
-                                  ${invoice.calculated_total}
-                                </Typography>
-                              </Box>
-                            )}
-                          </Box>
-
-                          <Box sx={{ mt: 1.5, display: "flex", gap: 1, flexWrap: "wrap" }}>
-                            {invoice.completeness && (
-                              <Chip
-                                label={`${invoice.completeness}% Complete`}
-                                size="small"
-                                color={invoice.completeness >= 80 ? "success" : invoice.completeness >= 50 ? "warning" : "error"}
-                              />
-                            )}
-                            {invoice.item_count > 0 && (
-                              <Chip label={`${invoice.item_count} items`} size="small" variant="outlined" />
-                            )}
-                            {invoice.has_signature && (
-                              <Chip label="✓ Signed" size="small" color="success" variant="outlined" />
-                            )}
-                            {invoice.items && invoice.items.length > 0 && (
-                              <Chip 
-                                label={`${invoice.items.length} line items`} 
-                                size="small" 
-                                variant="outlined" 
-                                color="info"
-                              />
-                            )}
-                          </Box>
-
-                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                            Uploaded: {new Date(invoice.uploaded_at).toLocaleString()}
-                          </Typography>
-                        </Box>
-
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => handleViewInvoiceDetails(invoice)}
-                        >
-                          View Details
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Stack>
-            </Box>
-          )}
-
-          {invoiceSearchQuery && invoiceSearchResults.length === 0 && !invoiceSearchLoading && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              No invoices found matching "{invoiceSearchQuery}"
-            </Alert>
-          )}
-        </Paper>
-      </Paper>
-
-      {/* Existing Redis Data Display */}
-      <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 3 }}>
-        <Box sx={{ flex: 1 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              <Badge badgeContent={redisInvoices.length} color="primary">
-                Invoices in Redis
-              </Badge>
-            </Typography>
-
-            {redisInvoices.length > 0 ? (
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                {redisInvoices.map((invoice, index) => (
-                  <Card key={`${invoice.invoiceId}-${index}`} variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {invoice.filename}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Type: {invoice.documentType}
-                          </Typography>
-                          {invoice.invoiceNumber && (
-                            <Typography variant="body2" color="text.secondary">
-                              Invoice #: {invoice.invoiceNumber}
-                            </Typography>
-                          )}
-                          {invoice.totalAmount && (
-                            <Typography variant="body2" color="primary" fontWeight="bold">
-                              {invoice.currency} {invoice.totalAmount}
-                            </Typography>
-                          )}
-                          <Typography variant="caption" color="text.secondary">
-                            {new Date(invoice.processedAt).toLocaleString()}
-                          </Typography>
-                        </Box>
-                        {invoice.readyForBooking && (
-                          <Chip label="Ready" color="success" size="small" />
-                        )}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Stack>
-            ) : (
-              <Alert severity="info" sx={{ mt: 2 }}>
-                No invoices in Redis yet. Upload an invoice to see it here.
-              </Alert>
-            )}
-          </Paper>
-        </Box>
-
-        <Box sx={{ flex: 1 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              <Badge badgeContent={redisDocuments.length} color="primary">
-                Documents in Redis
-              </Badge>
-            </Typography>
-
-            {redisDocuments.length > 0 ? (
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                {redisDocuments.map((doc, index) => (
-                  <Card key={`${doc.documentId}-${index}`} variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: "flex", alignItems: "start", gap: 2 }}>
-                        <DocumentIcon color="primary" />
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {doc.filename}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Type: {doc.documentType}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {new Date(doc.processedAt).toLocaleString()}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Stack>
-            ) : (
-              <Alert severity="info" sx={{ mt: 2 }}>
-                No documents in Redis yet. Upload a PDF to see it here.
-              </Alert>
-            )}
-          </Paper>
-        </Box>
-      </Box>
-
-      {/* Invoice Details Dialog */}
-      <Dialog
-        open={invoiceDetailsOpen}
-        onClose={() => setInvoiceDetailsOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <InvoiceIcon color="primary" />
-          Invoice Details
-        </DialogTitle>
-        <DialogContent dividers>
-          {selectedInvoice && (
-            <Stack spacing={3}>
-              {/* Header Section */}
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  {selectedInvoice.invoice_no || "N/A"}
-                </Typography>
-                <Stack direction="row" spacing={1}>
-                  <Chip
-                    label={selectedInvoice.is_valid ? "Valid" : "Invalid"}
-                    size="small"
-                    color={selectedInvoice.is_valid ? "success" : "error"}
-                  />
-                  <Chip
-                    label={`${selectedInvoice.completeness || 0}% Complete`}
-                    size="small"
-                    color={
-                      (selectedInvoice.completeness || 0) >= 80
-                        ? "success"
-                        : (selectedInvoice.completeness || 0) >= 50
-                        ? "warning"
-                        : "error"
-                    }
-                  />
-                  {selectedInvoice.has_signature && (
-                    <Chip label="Signed" size="small" color="success" icon={<CheckCircleIcon />} />
-                  )}
-                </Stack>
-              </Box>
-
-              <Divider />
-
-              {/* Basic Information */}
-              <Box>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Basic Information
-                </Typography>
-                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Filename
-                    </Typography>
-                    <Typography variant="body2">{selectedInvoice.filename}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Invoice Date
-                    </Typography>
-                    <Typography variant="body2">
-                      {selectedInvoice.invoice_date
-                        ? new Date(selectedInvoice.invoice_date).toLocaleDateString()
-                        : "N/A"}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Status
-                    </Typography>
-                    <Typography variant="body2">{selectedInvoice.status || "processed"}</Typography>
-                  </Box>
-                  {selectedInvoice.calculated_total && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Total Amount
-                      </Typography>
-                      <Typography variant="body2" fontWeight="bold" color="primary">
-                        ${selectedInvoice.calculated_total}
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
-              </Box>
-
-              {/* Parties Information */}
-              <Box>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Parties Information
-                </Typography>
-                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Consignee
-                    </Typography>
-                    <Typography variant="body2">{selectedInvoice.consignee_name || "N/A"}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Exporter
-                    </Typography>
-                    <Typography variant="body2">{selectedInvoice.exporter_name || "N/A"}</Typography>
-                  </Box>
-                </Box>
-              </Box>
-
-              {/* Shipping Details */}
-              <Box>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Shipping Details
-                </Typography>
-                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                  {selectedInvoice.incoterms && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Incoterms
-                      </Typography>
-                      <Typography variant="body2">{selectedInvoice.incoterms}</Typography>
-                    </Box>
-                  )}
-                  {selectedInvoice.port_of_loading && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Port of Loading
-                      </Typography>
-                      <Typography variant="body2">{selectedInvoice.port_of_loading}</Typography>
-                    </Box>
-                  )}
-                  {selectedInvoice.final_destination && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Final Destination
-                      </Typography>
-                      <Typography variant="body2">{selectedInvoice.final_destination}</Typography>
-                    </Box>
-                  )}
-                </Box>
-              </Box>
-
-              {/* Bank Details */}
-              {(selectedInvoice.bank_name || selectedInvoice.bank_account) && (
-                <Box>
-                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                    Bank Details
-                  </Typography>
-                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                    {selectedInvoice.bank_name && (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Bank Name
-                        </Typography>
-                        <Typography variant="body2">{selectedInvoice.bank_name}</Typography>
-                      </Box>
-                    )}
-                    {selectedInvoice.bank_account && (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Account Number
-                        </Typography>
-                        <Typography variant="body2">{selectedInvoice.bank_account}</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Box>
-              )}
-
-              {/* Items */}
-              {selectedInvoice.items && selectedInvoice.items.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                    Line Items ({selectedInvoice.item_count || selectedInvoice.items.length})
-                  </Typography>
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Description</TableCell>
-                          <TableCell align="right">Quantity</TableCell>
-                          <TableCell align="right">Unit Price</TableCell>
-                          <TableCell align="right">Total</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedInvoice.items.map((item: any, idx: number) => (
-                          <TableRow key={idx}>
-                            <TableCell>{item.description || `Item ${idx + 1}`}</TableCell>
-                            <TableCell align="right">{item.quantity || "—"}</TableCell>
-                            <TableCell align="right">
-                              {item.unitPrice ? `$${item.unitPrice}` : "—"}
-                            </TableCell>
-                            <TableCell align="right">
-                              {item.totalPrice ? `$${item.totalPrice}` : "—"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-              )}
-
-              {/* Validation */}
-              {(selectedInvoice.validation_errors?.length > 0 ||
-                selectedInvoice.validation_warnings?.length > 0) && (
-                <Box>
-                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                    Validation Results
-                  </Typography>
-                  {selectedInvoice.validation_errors?.length > 0 && (
-                    <Alert severity="error" sx={{ mb: 1 }}>
-                      <Typography variant="subtitle2" gutterBottom>
-                        Errors:
-                      </Typography>
-                      <ul style={{ margin: 0, paddingLeft: 20 }}>
-                        {selectedInvoice.validation_errors.map((err: string, idx: number) => (
-                          <li key={idx}>
-                            <Typography variant="body2">{err}</Typography>
-                          </li>
-                        ))}
-                      </ul>
-                    </Alert>
-                  )}
-                  {selectedInvoice.validation_warnings?.length > 0 && (
-                    <Alert severity="warning">
-                      <Typography variant="subtitle2" gutterBottom>
-                        Warnings:
-                      </Typography>
-                      <ul style={{ margin: 0, paddingLeft: 20 }}>
-                        {selectedInvoice.validation_warnings.map((warn: string, idx: number) => (
-                          <li key={idx}>
-                            <Typography variant="body2">{warn}</Typography>
-                          </li>
-                        ))}
-                      </ul>
-                    </Alert>
-                  )}
-                </Box>
-              )}
-
-              {/* Metadata */}
-              <Box>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Metadata
-                </Typography>
-                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 2 }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Invoice ID
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
-                      {selectedInvoice.invoice_id}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Uploaded At
-                    </Typography>
-                    <Typography variant="body2">
-                      {new Date(selectedInvoice.uploaded_at).toLocaleString()}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Processed At
-                    </Typography>
-                    <Typography variant="body2">
-                      {selectedInvoice.processed_at
-                        ? new Date(selectedInvoice.processed_at).toLocaleString()
-                        : "N/A"}
-                    </Typography>
-                  </Box>
-                </Box>
-              </Box>
-
-              {/* File Path */}
-              {selectedInvoice.filepath && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Storage Path
-                  </Typography>
-                  <Box
-                    sx={{
-                      p: 1,
-                      bgcolor: "grey.100",
-                      borderRadius: 1,
-                      fontFamily: "monospace",
-                      fontSize: "0.85rem",
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {selectedInvoice.filepath}
-                  </Box>
-                </Box>
-              )}
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setInvoiceDetailsOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  )
+      if (response.ok) {
+        // Copy share link to clipboard
+        await navigator.clipboard.writeText(
+          `${window.location.origin}/invoice/shared/${data.shareToken}`
+        );
+        
+        setSnackbar({
+          open: true,
+          message: "Share link copied to clipboard!",
+          severity: "success"
+        });
+      } else {
+        throw new Error(data.error || 'Failed to share invoice');
+      }
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.message || "Failed to share invoice",
+        severity: "error"
+      });
+    }
+  };
 
   return (
     <Box sx={{ flexGrow: 1, minHeight: "100vh", bgcolor: "grey.50" }}>
-      <AppBar position="static" elevation={0}>
-        <Toolbar>
-          <IconButton edge="start" color="inherit" onClick={() => setDrawerOpen(true)} sx={{ mr: 2 }}>
-            <MenuIcon />
-          </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: "bold" }}>
-            FreightChat Pro
-          </Typography>
-          {user ? (
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Chip
-                icon={<BusinessIcon />}
-                label={organization?.name || "Organization"}
-                color="secondary"
-                size="small"
-              />
-              <Avatar sx={{ width: 32, height: 32, bgcolor: "secondary.main" }}>
-                <PersonIcon />
-              </Avatar>
-              <Typography variant="body2" sx={{ display: { xs: "none", sm: "block" } }}>
-                {user.name}
-              </Typography>
-              <IconButton color="inherit" onClick={handleLogout}>
-                <LogoutIcon />
-              </IconButton>
-            </Stack>
-          ) : (
-            <Button color="inherit" onClick={() => setAuthDialogOpen(true)}>
-              Login
-            </Button>
-          )}
-        </Toolbar>
-      </AppBar>
+      <TopAppBar 
+        onOpenDrawer={() => setDrawerOpen(true)} 
+        user={user}
+        organization={organization}
+        onLogout={handleLogout}
+        onOpenAuth={() => setAuthDialogOpen(true)}
+      />
 
-      <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 280 }}>
-          <Toolbar>
-            <Typography variant="h6" fontWeight="bold">Navigation</Typography>
-          </Toolbar>
-          <Divider />
-          <List>
-            {[
-              { icon: <ChatIcon />, label: "AI Shipping Agent", idx: 0 },
-              { icon: <DocumentIcon />, label: "Documents", idx: 1 },
-              { icon: <TrackIcon />, label: "Tracking", idx: 2 },
-              { icon: <DashboardIcon />, label: "Dashboard", idx: 3 },
-              { icon: <StorageIcon />, label: "Data Storage", idx: 4, badge: redisInvoices.length + redisDocuments.length },
-            ].map((item) => (
-              <ListItemButton
-                key={item.idx}
-                selected={activeTab === item.idx}
-                onClick={() => {
-                  setActiveTab(item.idx)
-                  setDrawerOpen(false)
-                }}
-              >
-                <ListItemIcon>{item.icon}</ListItemIcon>
-                <ListItemText primary={item.label} />
-                {item.badge !== undefined && item.badge > 0 && (
-                  <Badge badgeContent={item.badge} color="primary" />
-                )}
-              </ListItemButton>
-            ))}
-          </List>
-        </Box>
-      </Drawer>
+      <NavDrawer 
+        open={drawerOpen} 
+        onClose={() => setDrawerOpen(false)} 
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        dataBadge={redisInvoices.length + redisDocuments.length}
+      />
 
       <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
         {user ? (
           <>
-            <Paper sx={{ mb: 2 }} elevation={2}>
-              <Tabs 
-                value={activeTab} 
-                onChange={handleTabChange} 
-                variant="fullWidth"
-                sx={{
-                  "& .MuiTab-root": {
-                    minHeight: 64,
-                  }
-                }}
-              >
-                <Tab icon={<ChatIcon />} label="AI Agent" />
-                <Tab icon={<DocumentIcon />} label="Documents" />
-                <Tab icon={<TrackIcon />} label="Tracking" />
-                <Tab icon={<DashboardIcon />} label="Dashboard" />
-                <Tab
-                  icon={
-                    <Badge badgeContent={redisInvoices.length + redisDocuments.length} color="primary">
-                      <StorageIcon />
-                    </Badge>
-                  }
-                  label="Data"
-                />
-              </Tabs>
-            </Paper>
+            <UserTabs 
+              value={activeTab} 
+              onChange={handleTabChange}
+              dataBadge={redisInvoices.length + redisDocuments.length}
+            />
 
-            <Box sx={{ mt: 3 }}>
-              {activeTab === 0 && renderAgentChat()}
-              {activeTab === 1 && renderDocumentChat()}
-              {activeTab === 2 && renderTracking()}
-              {activeTab === 3 && renderDashboard()}
-              {activeTab === 4 && renderRedisData()}
+          <Box sx={{ mt: 3 }}>
+              {activeTab === 0 && (
+                <AgentSection 
+                  agentThreadId={agentThreadId}
+                  workflowStep={workflowStep}
+                  workflowSteps={workflowSteps}
+                  agentMessages={agentMessages}
+                  agentLoading={agentLoading}
+                  showQuoteForm={showQuoteForm}
+                  showBankForm={showBankForm}
+                  showDocsUpload={showDocsUpload}
+                  renderVerificationResult={renderVerificationResult}
+                  setQuoteFormData={(updater) => setQuoteFormData((s) => updater(s as any) as any)}
+                  onQuoteSubmit={handleQuoteFormSubmit}
+                  onBookQuote={handleBookShipment}
+                  invoiceInputRef={invoiceInputRef as React.RefObject<HTMLInputElement | null>}
+                  onInvoiceUpload={handleInvoiceUpload}
+                  bankSubmitting={bankSubmitting}
+                  setBankDetails={(updater) => setBankDetails((s) => updater(s as any) as any)}
+                  onBankSubmit={handleBankDetailsSubmit}
+                  docsInputRef={docsInputRef as React.RefObject<HTMLInputElement | null>}
+                  onOtherDocsUpload={handleOtherDocsUpload}
+                  onFinalizeBooking={handleFinalizeBooking}
+                  messagesEndRef={messagesEndRef}
+                  agentInput={agentInput}
+                  setAgentInput={setAgentInput}
+                  onAgentInputKeyPress={handleAgentInputKeyPress}
+                  sendAgentMessage={sendAgentMessage}
+                  startAgent={startAgent}
+                  sessionInvoices={sessionInvoices}
+                  bankDetails={bankDetails}
+                  otherDocs={otherDocs}
+                  quoteFormData={quoteFormData}
+                  quote={quote}
+                />
+              )}
+              {activeTab === 1 && (
+                <DocumentsSection 
+                  fileInputRef={fileInputRef as React.RefObject<HTMLInputElement | null>}
+                  documentUploading={documentUploading}
+                  handleDocumentUpload={handleDocumentUpload}
+                  documents={documents}
+                  documentChatInput={documentChatInput}
+                  setDocumentChatInput={setDocumentChatInput}
+                  handleDocumentChat={handleDocumentChat}
+                  documentChatLoading={documentChatLoading}
+                  documentChatResponse={documentChatResponse}
+                  setSnackbar={setSnackbar}
+                />
+              )}
+              {activeTab === 2 && (
+                <TrackingSection 
+                  trackingNumber={trackingNumber}
+                  setTrackingNumber={setTrackingNumber}
+                  trackingLoading={trackingLoading}
+                  trackingInfo={trackingInfo}
+                  handleTrackShipment={handleTrackShipment}
+                  user={user}
+                  userShipments={userShipments}
+                />
+              )}
+              {activeTab === 3 && (
+                <DashboardSection 
+                  organization={organization}
+                  documentsCount={documents.length}
+                  activeShipmentsCount={userShipments.filter(s => !["delivered", "returned"].includes(s.status)).length}
+                  invoicesCount={redisInvoices.length}
+                  totalShipmentsCount={userShipments.length}
+                  userRole={user?.role}
+                  setActiveTab={setActiveTab}
+                  startAgent={startAgent}
+                  hasAgentThread={!!agentThreadId}
+                  fileInputRef={fileInputRef as React.RefObject<HTMLInputElement | null>}
+                />
+              )}
+              {activeTab === 4 && (
+                <DataSection 
+                  redisLoading={redisLoading}
+                  refreshRedisData={refreshRedisData}
+                  invoiceSearchQuery={invoiceSearchQuery}
+                  setInvoiceSearchQuery={setInvoiceSearchQuery}
+                  invoiceSearchLoading={invoiceSearchLoading}
+                  handleInvoiceLookup={handleInvoiceLookup}
+                  invoiceSearchResults={invoiceSearchResults}
+                  handleShareInvoice={handleShareInvoice}
+                />
+              )}
             </Box>
           </>
         ) : (
@@ -3077,168 +1921,11 @@ const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState<boolean>(false)
       </Container>
 
       {/* Auth Dialog */}
-      <Dialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          {isLogin ? "Login to FreightChat Pro" : "Create Account"}
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <TextField
-              autoFocus
-              margin="dense"
-              label="User ID"
-              type="text"
-              fullWidth
-              variant="outlined"
-              value={authData.userId}
-              onChange={handleAuthDataChange("userId")}
-              sx={{ mb: 2 }}
-              required
-            />
-
-            {!isLogin && (
-              <>
-                <TextField
-                  margin="dense"
-                  label="Full Name"
-                  type="text"
-                  fullWidth
-                  variant="outlined"
-                  value={authData.name}
-                  onChange={handleAuthDataChange("name")}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  margin="dense"
-                  label="Email"
-                  type="email"
-                  fullWidth
-                  variant="outlined"
-                  value={authData.email}
-                  onChange={handleAuthDataChange("email")}
-                  sx={{ mb: 2 }}
-                  required
-                />
-
-                <Divider sx={{ my: 3 }} />
-
-                <FormControl component="fieldset" sx={{ mb: 2 }}>
-                  <FormLabel component="legend">Organization Setup</FormLabel>
-                  <RadioGroup
-                    value={authData.createNewOrganization ? "new" : "existing"}
-                    onChange={(e) =>
-                      setAuthData((prev) => ({
-                        ...prev,
-                        createNewOrganization: e.target.value === "new",
-                      }))
-                    }
-                  >
-                    <FormControlLabel value="new" control={<Radio />} label="Create New Organization" />
-                    <FormControlLabel value="existing" control={<Radio />} label="Join Existing Organization" />
-                  </RadioGroup>
-                </FormControl>
-
-                <TextField
-                  margin="dense"
-                  label="Organization ID"
-                  type="text"
-                  fullWidth
-                  variant="outlined"
-                  value={authData.organizationId}
-                  onChange={handleAuthDataChange("organizationId")}
-                  sx={{ mb: 2 }}
-                  required
-                  helperText={
-                    authData.createNewOrganization
-                      ? "Choose a unique ID for your organization"
-                      : "Enter the ID of the organization you want to join"
-                  }
-                />
-
-                {authData.createNewOrganization && (
-                  <>
-                    <TextField
-                      margin="dense"
-                      label="Organization Name"
-                      type="text"
-                      fullWidth
-                      variant="outlined"
-                      value={authData.organizationName}
-                      onChange={handleAuthDataChange("organizationName")}
-                      sx={{ mb: 2 }}
-                      required
-                    />
-
-                    <Accordion>
-                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                        <Typography>Optional Organization Details</Typography>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <Stack spacing={2}>
-                          <TextField
-                            label="Organization Email"
-                            type="email"
-                            fullWidth
-                            value={authData.organizationEmail}
-                            onChange={handleAuthDataChange("organizationEmail")}
-                          />
-                          <TextField
-                            label="Phone"
-                            type="tel"
-                            fullWidth
-                            value={authData.organizationPhone}
-                            onChange={handleAuthDataChange("organizationPhone")}
-                          />
-                          <TextField
-                            label="Address"
-                            fullWidth
-                            multiline
-                            rows={2}
-                            value={authData.organizationAddress}
-                            onChange={handleAuthDataChange("organizationAddress")}
-                          />
-                          <TextField
-                            label="Industry"
-                            fullWidth
-                            value={authData.industry}
-                            onChange={handleAuthDataChange("industry")}
-                            placeholder="e.g., Manufacturing, Retail"
-                          />
-                          <TextField
-                            label="Company Size"
-                            fullWidth
-                            value={authData.size}
-                            onChange={handleAuthDataChange("size")}
-                            placeholder="e.g., 1-10, 11-50, 51-200"
-                          />
-                        </Stack>
-                      </AccordionDetails>
-                    </Accordion>
-                  </>
-                )}
-              </>
-            )}
-
-            {isLogin && (
-              <TextField
-                margin="dense"
-                label="Email (Optional)"
-                type="email"
-                fullWidth
-                variant="outlined"
-                value={authData.email}
-                onChange={handleAuthDataChange("email")}
-                sx={{ mb: 2 }}
-                helperText="You can login with either User ID or Email"
-              />
-            )}
-
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              {isLogin ? "Don't have an account? " : "Already have an account? "}
-              <Button
-                size="small"
-                onClick={() => {
+      <AuthModal 
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        isLogin={isLogin}
+        toggleMode={() => {
                   setIsLogin(!isLogin)
                   setAuthData({
                     userId: "",
@@ -3254,31 +1941,11 @@ const [invoiceDetailsOpen, setInvoiceDetailsOpen] = useState<boolean>(false)
                     size: "",
                   })
                 }}
-              >
-                {isLogin ? "Register" : "Login"}
-              </Button>
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAuthDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleAuth}
-            variant="contained"
-            disabled={
-              loading ||
-              !authData.userId.trim() ||
-              (!isLogin &&
-                (!authData.name.trim() ||
-                  !authData.email.trim() ||
-                  !authData.organizationId.trim() ||
-                  (authData.createNewOrganization && !authData.organizationName.trim())))
-            }
-          >
-            {loading ? <CircularProgress size={20} /> : isLogin ? "Login" : "Register"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        authData={authData}
+        onChange={handleAuthDataChange}
+        onSubmit={handleAuth}
+        loading={loading}
+      />
 
       {/* Snackbar */}
       <Snackbar 

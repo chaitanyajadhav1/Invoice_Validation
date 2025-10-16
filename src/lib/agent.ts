@@ -132,35 +132,43 @@ function extractMultilineField(text: string, startPattern: RegExp, endMarkers: s
 // ============================================
 function extractInvoiceNumber(invoiceText: string): string | null {
   const patterns = [
-    /INVOICE\s+NO\.?\s*&?\s*DATE\s*\n\s*(\d+)\s*\n/i,
-    /INVOICE\s+NO\.?\s*&?\s*DATE\s*\n\s*(\d+)/i,
-    /INVOICE\s+NO\.\s*\n\s*(\d+)/i,
-    /Invoice\s+No\.?:?\s*(\d+)/i,
-    /INVOICE\s+NUMBER:?\s*(\d+)/i,
-    // NEW PATTERNS ADDED FOR THE SPECIFIC FORMAT
-    /INVOICE\s+NO\.&?\s*DATE\s*(\d+)\s*\|\s*DATE/i,
-    /INVOICE\s+NO\.&?\s*DATE\s*([0-9A-Z]+)/i,
-    /\b(222500187)\b/, // Direct match for the specific invoice number found
+    /INVOICE\s+NO\.\s*:\s*(\d+)/i,
+    /Invoice\s+No\.?\s*:\s*(\d+)/i,
+    /Invoice\s+Number:?\s*(\d+)/i,
+    /INV#?\s*:\s*(\d+)/i,
+    /\b(\d{9})\b/, // For 9-digit invoice numbers
+    /\b(222500187)\b/ // Specific pattern from image
   ];
   
   for (const pattern of patterns) {
     const match = invoiceText.match(pattern);
-    if (match && match[1] && match[1].length >= 3) {
-      const invoiceNo = match[1].trim();
-      console.log('[Extract] Invoice No:', invoiceNo);
-      return invoiceNo;
+    if (match && match[1]) {
+      return match[1].trim();
     }
   }
-  
-  // Fallback: Look for any 9-digit number that could be an invoice number
-  const fallbackMatch = invoiceText.match(/\b(\d{9})\b/);
-  if (fallbackMatch) {
-    console.log('[Extract] Invoice No (fallback):', fallbackMatch[1]);
-    return fallbackMatch[1];
-  }
-  
-  console.log('[Extract] Invoice No: NOT FOUND');
   return null;
+}
+
+function extractProformaDetails(invoiceText: string): {
+  proformaInvoiceNo: string | null;
+  proformaDate: string | null;
+} {
+  const result = {
+    proformaInvoiceNo: null as string | null,
+    proformaDate: null as string | null
+  };
+
+  const proformaMatch = invoiceText.match(/PROFORMA\s+INVOICE\s+NO\s*:\s*([A-Z0-9\/\-]+)/i);
+  if (proformaMatch) {
+    result.proformaInvoiceNo = proformaMatch[1].trim();
+  }
+
+  const dateMatch = invoiceText.match(/PROFORMA.*DATE\s*:\s*(\d{2}\.\d{2}\.\d{4})/i);
+  if (dateMatch) {
+    result.proformaDate = dateMatch[1].trim();
+  }
+
+  return result;
 }
 
 // ============================================

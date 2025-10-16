@@ -987,3 +987,31 @@ export async function getInvoicesByNumber(invoiceNo: string) {
   console.log('[DB] Found invoices by number:', data?.length || 0);
   return data || [];
 }
+
+// ========== SHARED INVOICE MANAGEMENT ==========
+
+export async function createSharedInvoice(invoiceId: string, shareData: {
+  sharedBy: string;
+  sharedWith?: string;
+  expiresAt?: Date;
+}) {
+  const { data, error } = await supabaseAdmin
+    .from('shared_invoices')
+    .insert([{
+      invoice_id: invoiceId,
+      shared_by: shareData.sharedBy,
+      shared_with: shareData.sharedWith,
+      expires_at: shareData.expiresAt?.toISOString(),
+      share_token: `share_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      created_at: new Date().toISOString()
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[DB] Error creating shared invoice:', error);
+    throw error;
+  }
+
+  return data;
+}
